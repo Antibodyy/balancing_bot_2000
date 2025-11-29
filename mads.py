@@ -84,8 +84,7 @@ B_num = np.array(B_func(np.zeros(6), np.zeros(2)))
 Q = np.diag([1.0, 500.0, 1.0, 0.1, 10.0, 0.1]) 
 R = np.eye(2) * 0.1
 P = scipy.linalg.solve_continuous_are(A_num, B_num, Q, R)
-K = np.linalg.inv(R) @ B_num.T @ P
-print(f"LQR Gain Matrix Calculated. Shape: {K.shape}")
+K = np.linalg.inv(R)@B_num.T@P
 print(K)
 
 def controller_callback(model, data):
@@ -96,7 +95,7 @@ def controller_callback(model, data):
     x_curr = np.array([x_pos, theta, 0.0, x_vel, d_theta, 0.0])
     u = -K @ x_curr
     if abs(theta) > 0.05 and int(data.time * 100) % 10 == 0:
-        print(f"Tilt: {theta:.3f} rad | LQR Reaction Torque: {u[0]:.3f} N")
+        print(f"Tilt: {theta:.3f} rad and LQR Reaction Torque: {u[0]:.3f} N")
     data.ctrl[0] = u[0]
     data.ctrl[1] = u[1]
 
@@ -105,47 +104,6 @@ def main():
     data = mujoco.MjData(model)
     mujoco.set_mjcb_control(controller_callback)
     mujoco.viewer.launch(model, data)
+
 if __name__ == "__main__":
     main()
-
-# mjcf_xml = """
-# <mujoco model="balance_bot">
-#   <option timestep="0.005" gravity="0 0 -9.81"/>
-
-#   <visual>
-#     <rgba haze="0.15 0.25 0.35 1"/>
-#     <quality shadowsize="2048"/>
-#   </visual>
-
-#   <worldbody>
-#     <light pos="0 0 3" dir="0 0 -1" directional="true"/>
-    
-#     <geom name="floor" type="plane" size="0 15 0.05" rgba=".8 .9 .8 1"/>
-
-#     <body name="robot" pos="0 0 0.05">
-      
-#       <joint name="slide_x" type="slide" axis="1 0 0" damping="0.1"/>
-      
-#       <joint name="pitch" type="hinge" axis="0 1 0" pos="0 0 0"/>
-      
-#       <geom type="box" size="0.05 0.05 0.2" pos="0 0 0.2" rgba="0.9 0.5 0.1 1" mass="10.0"/>
-
-#       <body name="wheel_r" pos="0 -0.15 0">
-#         <joint name="motor_r" axis="0 1 0"/>
-#         <geom type="cylinder" size="0.05 0.02" rgba="0.1 0.1 0.1 1" mass="0.5" fromto="0 0 0 0 0.02 0"/>
-#       </body>
-
-#       <body name="wheel_l" pos="0 0.15 0">
-#         <joint name="motor_l" axis="0 1 0"/>
-#         <geom type="cylinder" size="0.05 0.02" rgba="0.1 0.1 0.1 1" mass="0.5" fromto="0 0 0 0 -0.02 0"/>
-#       </body>
-#     </body>
-#   </worldbody>
-
-#   <actuator>
-#     <motor name="left" joint="motor_l" gear="1"/>
-#     <motor name="right" joint="motor_r" gear="1"/>
-#   </actuator>
-# </mujoco>
-# """
-
