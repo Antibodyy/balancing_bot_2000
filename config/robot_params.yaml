@@ -1,0 +1,21 @@
+# Robot Physical Parameters
+# Single source of truth per style_guide.md section 4.4
+# Units specified in comments and parameter names
+
+# Masses (kg)
+body_mass_kg: 1.5        # Placeholder: to be measured
+wheel_mass_kg: 0.5       # Placeholder: to be measured
+
+# Geometry (m)
+com_distance_m: 0.2      # Placeholder: distance from axle to COM
+wheel_radius_m: 0.05     # Placeholder: wheel radius
+track_width_m: 0.3       # Placeholder: distance between wheels
+
+# Inertias (kg·m²)
+body_pitch_inertia_kg_m2: 0.05   # Placeholder: I_y
+body_yaw_inertia_kg_m2: 0.01     # Placeholder: I_z
+wheel_inertia_kg_m2: 0.001       # Placeholder: J_w
+
+# Environment
+gravity_mps2: 9.81              # Earth gravity
+ground_slope_rad: 0.0           # Measured parameter (0 = flat)
