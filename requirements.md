@@ -71,7 +71,7 @@ Development of Model Predictive Control (MPC) for a two-wheel self-balancing rob
 ### 2.2 Software Architecture
 - **High-Level Controller** (Raspberry Pi):
   - Python 3.9+S
-  - MPC solver: cvxopt
+  - MPC solver: CasADi
   - State estimator: EKF or complementary filter
   
 - **Low-Level Controller** (32U4):
@@ -155,8 +155,9 @@ J = Σ(k=0 to N-1) [||x(k) - x_ref(k)||²_Q + ||u(k)||²_R] + ||x(N) - x_ref(N)|
 - **Raspberry Pi**:
   - OS: Raspberry Pi OS (Debian-based)
   - Python 3.9+ with numpy, scipy, matplotlib
-  - MPC solver: cvxopt
-  - Communication: pySerial or USB HID
+  - MPC solver: CasADi
+  - 
+  ommunication: pySerial or USB HID
   
 - **Balboa 32U4**:
   - Arduino IDE 1.8.x or 2.x
@@ -165,7 +166,7 @@ J = Σ(k=0 to N-1) [||x(k) - x_ref(k)||²_Q + ||u(k)||²_R] + ||x(N) - x_ref(N)|
 ### 4.2 Key Libraries and Tools
 | Component | Tool/Library | Purpose |
 |-----------|-------------|---------|
-| MPC Solver | cvxopt | Real-time optimization |
+| MPC Solver | CasADi | Real-time optimization |
 | Symbolic Math | CasADi | Model derivatives, code generation |
 | State Estimation | FilterPy, custom EKF | Sensor fusion |
 | Communication | pySerial | Pi ↔ 32U4 interface |
@@ -188,7 +189,7 @@ J = Σ(k=0 to N-1) [||x(k) - x_ref(k)||²_Q + ||u(k)||²_R] + ||x(N) - x_ref(N)|
    - Parameter identification results
 
 2. **MPC Formulation**:
-   - Cost function design (Q, R, P matrices)
+   - Cost function design
    - Constraint specification
    - Horizon selection rationale
 
