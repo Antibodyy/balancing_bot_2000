@@ -20,8 +20,8 @@ Examples:
     # Drive in circle
     python run_robot.py --mode velocity --velocity 0.1 --yaw-rate 0.5
 
-    # Specify custom serial port
-    python run_robot.py --port /dev/ttyUSB0
+    # Specify custom I2C address
+    python run_robot.py --address 0x20
 
     # Run for 60 seconds
     python run_robot.py --mode balance --duration 60
@@ -32,7 +32,7 @@ import sys
 
 from hardware import (
     load_hardware_mpc,
-    BalboaSerialInterface,
+    BalboaI2CInterface,
     HardwareBalanceController
 )
 from mpc import ReferenceCommand, ReferenceMode
@@ -82,16 +82,16 @@ def parse_args():
 
     # Hardware parameters
     parser.add_argument(
-        '--port',
-        type=str,
-        default='/dev/ttyACM0',
-        help='Serial port for Arduino (default: /dev/ttyACM0)'
+        '--bus',
+        type=int,
+        default=1,
+        help='I2C bus number (default: 1)'
     )
     parser.add_argument(
-        '--baudrate',
-        type=int,
-        default=115200,
-        help='Serial baud rate (default: 115200)'
+        '--address',
+        type=lambda x: int(x, 0),  # Support 0x20 hex notation
+        default=0x20,
+        help='I2C slave address (default: 0x20)'
     )
 
     # Control loop parameters
@@ -180,7 +180,8 @@ def main():
     if args.mode == 'velocity':
         print(f"Velocity:       {args.velocity:.3f} m/s")
         print(f"Yaw rate:       {args.yaw_rate:.3f} rad/s")
-    print(f"Serial port:    {args.port}")
+    print(f"I2C bus:        {args.bus}")
+    print(f"I2C address:    0x{args.address:02X}")
     print(f"Frequency:      {args.frequency:.1f} Hz")
     print(f"Duration:       {args.duration if args.duration else 'unlimited'}")
     print("=" * 60)
@@ -199,26 +200,28 @@ def main():
         print(f"✗ Failed to load MPC controller: {e}")
         sys.exit(1)
 
-    # Connect to Arduino
-    print(f"Connecting to Arduino on {args.port}...")
+    # Connect to Arduino via I2C
+    print(f"Connecting to Arduino on I2C bus {args.bus} address 0x{args.address:02X}...")
     try:
-        serial_interface = BalboaSerialInterface(
-            port=args.port,
-            baudrate=args.baudrate
+        i2c_interface = BalboaI2CInterface(
+            bus=args.bus,
+            address=args.address
         )
-        print("✓ Serial connection established")
+        print("✓ I2C connection established")
     except Exception as e:
         print(f"✗ Failed to connect to Arduino: {e}")
         print("\nTroubleshooting:")
-        print("  - Check that Arduino is connected")
-        print("  - Verify correct port (try: ls /dev/tty*)")
-        print("  - Ensure user has serial port permissions (add to dialout group)")
+        print("  - Check that Raspberry Pi is mounted on Balboa")
+        print("  - Verify Balboa is powered on (green LED blink on startup)")
+        print("  - Check I2C is enabled: sudo raspi-config > Interface Options > I2C")
+        print("  - Verify firmware uploaded with correct I2C address (0x20)")
+        print("  - Test I2C detection: sudo i2cdetect -y 1")
         sys.exit(1)
 
     # Create hardware controller
     print("Initializing hardware controller...")
     hw_controller = HardwareBalanceController(
-        serial_interface=serial_interface,
+        i2c_interface=i2c_interface,
         balance_controller=balance_controller,
         target_frequency_hz=args.frequency,
         enable_logging=not args.quiet
@@ -243,8 +246,8 @@ def main():
         traceback.print_exc()
     finally:
         # Cleanup
-        print("\nClosing serial connection...")
-        serial_interface.close()
+        print("\nClosing I2C connection...")
+        i2c_interface.close()
         print("✓ Done")
 
 
