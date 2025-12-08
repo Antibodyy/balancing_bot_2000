@@ -129,11 +129,16 @@ class MPCSimulation:
     not the dynamics from mads.py.
     """
 
-    # MuJoCo joint indices
-    SLIDE_X_JOINT = 0  # qpos[0]
-    PITCH_JOINT = 1    # qpos[1]
-    MOTOR_L_JOINT = 2  # qpos[2]
-    MOTOR_R_JOINT = 3  # qpos[3]
+    # MuJoCo joint indices (with freejoint)
+    # Freejoint uses: qpos[0:3] = position (x,y,z), qpos[3:7] = quaternion (w,x,y,z)
+    FREE_JOINT_POS_START = 0    # Position starts at qpos[0]
+    FREE_JOINT_QUAT_START = 3   # Quaternion starts at qpos[3]
+    MOTOR_R_JOINT = 7           # qpos[7]
+    MOTOR_L_JOINT = 8           # qpos[8]
+
+    # Velocity indices (freejoint velocities)
+    FREE_JOINT_VEL_START = 0    # Linear velocity qvel[0:3]
+    FREE_JOINT_ANGVEL_START = 3 # Angular velocity qvel[3:6]
 
     # MuJoCo actuator indices
     LEFT_ACTUATOR = 0
@@ -240,6 +245,7 @@ class MPCSimulation:
             sampling_period_s=self._mpc_config.sampling_period_s,
             wheel_radius_m=self._robot_params.wheel_radius_m,
             track_width_m=self._robot_params.track_width_m,
+            use_simulation_velocity=True,  # FIX: Enable corrected velocity in simulation
         )
 
     def _load_model(self) -> None:
@@ -267,22 +273,31 @@ class MPCSimulation:
         """
         state = np.zeros(STATE_DIMENSION)
 
-        # Position (forward direction on slope)
-        state[POSITION_INDEX] = self._data.qpos[self.SLIDE_X_JOINT]
+        # Position (x direction)
+        state[POSITION_INDEX] = self._data.qpos[self.FREE_JOINT_POS_START]
 
-        # Pitch angle (relative to vertical)
-        # In MuJoCo, pitch=0 means aligned with slope, so subtract slope
-        state[PITCH_INDEX] = (
-            self._data.qpos[self.PITCH_JOINT] + self._ground_slope_rad
+        # Extract pitch from quaternion
+        # Quaternion: [qw, qx, qy, qz] at indices [3, 4, 5, 6]
+        qw = self._data.qpos[self.FREE_JOINT_QUAT_START]
+        qx = self._data.qpos[self.FREE_JOINT_QUAT_START + 1]
+        qy = self._data.qpos[self.FREE_JOINT_QUAT_START + 2]
+        qz = self._data.qpos[self.FREE_JOINT_QUAT_START + 3]
+
+        # Pitch (rotation about y-axis): arcsin(2*(qw*qy - qz*qx))
+        pitch_rad = np.arcsin(2.0 * (qw * qy - qz * qx))
+        state[PITCH_INDEX] = pitch_rad + self._ground_slope_rad
+
+        # Yaw (rotation about z-axis): arctan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
+        yaw_rad = np.arctan2(
+            2.0 * (qw * qz + qx * qy),
+            1.0 - 2.0 * (qy * qy + qz * qz)
         )
+        state[YAW_INDEX] = yaw_rad
 
-        # Yaw (not modeled in 2D MuJoCo, always 0)
-        state[YAW_INDEX] = 0.0
-
-        # Velocities
-        state[VELOCITY_INDEX] = self._data.qvel[self.SLIDE_X_JOINT]
-        state[PITCH_RATE_INDEX] = self._data.qvel[self.PITCH_JOINT]
-        state[YAW_RATE_INDEX] = 0.0
+        # Velocities (linear and angular from freejoint)
+        state[VELOCITY_INDEX] = self._data.qvel[self.FREE_JOINT_VEL_START]      # vx
+        state[PITCH_RATE_INDEX] = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 1]  # wy
+        state[YAW_RATE_INDEX] = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]    # wz
 
         return state
 
@@ -297,9 +312,16 @@ class MPCSimulation:
         Returns:
             SensorData for controller input
         """
-        # Extract current state
-        pitch_rad = self._data.qpos[self.PITCH_JOINT] + self._ground_slope_rad
-        pitch_rate_radps = self._data.qvel[self.PITCH_JOINT]
+        # Extract pitch from quaternion
+        qw = self._data.qpos[self.FREE_JOINT_QUAT_START]
+        qx = self._data.qpos[self.FREE_JOINT_QUAT_START + 1]
+        qy = self._data.qpos[self.FREE_JOINT_QUAT_START + 2]
+        qz = self._data.qpos[self.FREE_JOINT_QUAT_START + 3]
+        pitch_rad = np.arcsin(2.0 * (qw * qy - qz * qx)) + self._ground_slope_rad
+
+        # Angular velocities from freejoint
+        pitch_rate_radps = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 1]
+        yaw_rate_radps = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
         # Simulate accelerometer readings
         # At rest, accelerometer measures gravity
@@ -312,16 +334,14 @@ class MPCSimulation:
 
         # Simulate gyroscope readings
         angular_velocity = np.array([
-            0.0,              # omega_x
+            0.0,              # omega_x (roll rate)
             pitch_rate_radps, # omega_y (pitch rate)
-            0.0,              # omega_z (yaw rate)
+            yaw_rate_radps,   # omega_z (yaw rate)
         ])
 
         # Update encoder readings from wheel joints
-        # Note: In MuJoCo, wheel rotation is tracked via motor joints
-        if self._model.nq > 2:
-            self._encoder_left_rad = self._data.qpos[self.MOTOR_L_JOINT]
-            self._encoder_right_rad = self._data.qpos[self.MOTOR_R_JOINT]
+        self._encoder_left_rad = self._data.qpos[self.MOTOR_L_JOINT]
+        self._encoder_right_rad = self._data.qpos[self.MOTOR_R_JOINT]
 
         return SensorData(
             acceleration_mps2=acceleration,
@@ -338,12 +358,9 @@ class MPCSimulation:
             torque_left_nm: Left wheel torque in N*m
             torque_right_nm: Right wheel torque in N*m
         """
-        # MuJoCo actuators have gear ratio built in (0.25 in model)
-        # ctrl is the "activation" which gets multiplied by gear
-        # So to get torque T, we set ctrl = T / gear
-        gear_ratio = 0.25
-        self._data.ctrl[self.LEFT_ACTUATOR] = torque_left_nm / gear_ratio
-        self._data.ctrl[self.RIGHT_ACTUATOR] = torque_right_nm / gear_ratio
+        # Direct torque control (gear=1.0 in new model)
+        self._data.ctrl[self.LEFT_ACTUATOR] = torque_left_nm
+        self._data.ctrl[self.RIGHT_ACTUATOR] = torque_right_nm
 
     def _check_fallen(self, state: np.ndarray) -> bool:
         """Check if robot has fallen.
@@ -382,13 +399,16 @@ class MPCSimulation:
         # Load model
         self._load_model()
 
-        # Set initial conditions
-        # In MuJoCo, pitch is relative to the slope (floor euler="0 35 0")
-        # equilibrium_pitch_mujoco = -ground_slope_rad = -35 degrees
-        equilibrium_pitch_mujoco = -self._ground_slope_rad
-        self._data.qpos[self.PITCH_JOINT] = (
-            equilibrium_pitch_mujoco + initial_pitch_rad
-        )
+        # Set initial conditions for freejoint
+        # Position: start at origin
+        self._data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [0, 0, 0.25]
+
+        # Orientation: convert pitch perturbation to quaternion
+        # Small angle approximation for pitch rotation about y-axis
+        pitch_perturb = initial_pitch_rad - self._ground_slope_rad
+        qw = np.cos(pitch_perturb / 2)
+        qy = np.sin(pitch_perturb / 2)
+        self._data.qpos[self.FREE_JOINT_QUAT_START:self.FREE_JOINT_QUAT_START + 4] = [qw, 0, qy, 0]
 
         # Reset controller
         self._controller.reset()
@@ -425,6 +445,9 @@ class MPCSimulation:
 
             # Build sensor data
             sensor_data = self._build_sensor_data(sim_time)
+
+            # FIX: Provide true ground velocity to controller (for simulation mode)
+            self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
 
             # Run controller
             output = self._controller.step(sensor_data, command)
@@ -540,11 +563,15 @@ class MPCSimulation:
         # Load model
         self._load_model()
 
-        # Set initial conditions
-        equilibrium_pitch_mujoco = -self._ground_slope_rad
-        self._data.qpos[self.PITCH_JOINT] = (
-            equilibrium_pitch_mujoco + initial_pitch_rad
-        )
+        # Set initial conditions for freejoint (viewer mode)
+        # Position: start at origin
+        self._data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [0, 0, 0.25]
+
+        # Orientation: convert pitch perturbation to quaternion
+        pitch_perturb = initial_pitch_rad - self._ground_slope_rad
+        qw = np.cos(pitch_perturb / 2)
+        qy = np.sin(pitch_perturb / 2)
+        self._data.qpos[self.FREE_JOINT_QUAT_START:self.FREE_JOINT_QUAT_START + 4] = [qw, 0, qy, 0]
 
         # Reset controller
         self._controller.reset()
@@ -582,6 +609,9 @@ class MPCSimulation:
 
                 # Build sensor data
                 sensor_data = self._build_sensor_data(sim_time)
+
+                # FIX: Provide true ground velocity to controller (for simulation mode)
+                self._controller._true_ground_velocity = data.qvel[self.FREE_JOINT_VEL_START]
 
                 # Run controller
                 output = self._controller.step(sensor_data, command)

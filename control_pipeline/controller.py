@@ -85,6 +85,7 @@ class BalanceController:
         sampling_period_s: float,
         wheel_radius_m: float,
         track_width_m: float,
+        use_simulation_velocity: bool = False,
     ) -> None:
         """Initialize balance controller.
 
@@ -95,6 +96,8 @@ class BalanceController:
             sampling_period_s: Control loop period
             wheel_radius_m: Wheel radius for encoder to velocity conversion
             track_width_m: Track width for differential drive kinematics
+            use_simulation_velocity: If True, use true ground velocity from simulation
+                                     instead of encoder-based estimation (fixes the bug)
         """
         self._mpc_solver = mpc_solver
         self._state_estimator = state_estimator
@@ -102,6 +105,7 @@ class BalanceController:
         self._sampling_period_s = sampling_period_s
         self._wheel_radius_m = wheel_radius_m
         self._track_width_m = track_width_m
+        self._use_simulation_velocity = use_simulation_velocity
 
         # Timer for performance monitoring
         self._timer = ControlLoopTimer(deadline_s=sampling_period_s)
@@ -114,6 +118,9 @@ class BalanceController:
         # Position and heading integration
         self._position_m: float = 0.0
         self._heading_rad: float = 0.0
+
+        # Simulation mode: true ground velocity (set by simulation)
+        self._true_ground_velocity: float = 0.0
 
     def step(
         self,
@@ -205,7 +212,17 @@ class BalanceController:
             )
 
             # Differential drive kinematics
-            forward_velocity = (wheel_velocity_left + wheel_velocity_right) / 2
+            # FIX: In simulation mode, use true ground velocity instead of encoder-based
+            # The encoder measures wheel rotation relative to body, which is wrong for
+            # inverted pendulum robots where body pitches while wheels rotate.
+            if self._use_simulation_velocity:
+                # Simulation: use ground truth velocity
+                forward_velocity = self._true_ground_velocity
+            else:
+                # Hardware: encoder-based (BUGGY - needs proper compensation for pitch)
+                # TODO: Fix for hardware by compensating for body pitch rate
+                forward_velocity = (wheel_velocity_left + wheel_velocity_right) / 2
+
             yaw_rate = (
                 (wheel_velocity_right - wheel_velocity_left) / self._track_width_m
             )

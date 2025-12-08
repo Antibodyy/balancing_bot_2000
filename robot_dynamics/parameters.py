@@ -98,14 +98,16 @@ class RobotParameters:
 
     @property
     def effective_mass_kg(self) -> float:
-        """Effective mass M_eff = M + m + 2*J_w/r^2.
+        """Effective mass M_eff = M + m.
 
-        See dynamics.md equation 64 for derivation.
+        NOTE: In MuJoCo, wheels are modeled as separate bodies with their own DOFs.
+        The wheel inertia does NOT get reflected into the effective mass.
+        This differs from the quasi-static wheel assumption in dynamics.md eq 64.
         """
         return (
             self.body_mass_kg +
-            2 * self.wheel_mass_kg +
-            2 * self.wheel_inertia_kg_m2 / (self.wheel_radius_m ** 2)
+            2 * self.wheel_mass_kg
+            # NOT including: 2 * self.wheel_inertia_kg_m2 / (self.wheel_radius_m ** 2)
         )
 
     @property
