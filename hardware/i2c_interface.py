@@ -111,7 +111,10 @@ class BalboaI2CInterface:
 
             # Enable block data update
             self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b01000100)
-            time.sleep(0.01)
+
+            # Wait for IMU to stabilize and start producing data (at least one sample period)
+            # At 208Hz ODR, one sample takes ~5ms, wait 100ms to be safe
+            time.sleep(0.1)
 
             print("IMU initialized successfully")
         except IOError as e:
