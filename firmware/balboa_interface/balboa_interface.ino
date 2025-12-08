@@ -1,23 +1,15 @@
 /**
- * Balboa 32U4 Interface for MPC Balancing Robot - I2C Slave Version
+ * Balboa 32U4 Interface for MPC Balancing Robot - I2C Slave with Wire Library
  *
- * This firmware provides low-level hardware interface for the Raspberry Pi:
- * - Motor control via torque commands
- * - Encoder position tracking
- * - I2C slave communication with Raspberry Pi
- *
- * Note: IMU sensors are read directly by Raspberry Pi (I2C master).
- * The Balboa only handles motors and encoders.
- *
- * Uses Pololu RPI Slave Arduino Library:
- * https://github.com/pololu/pololu-rpi-slave-arduino-library
+ * Uses standard Arduino Wire library for I2C slave communication.
+ * This replaces PololuRPiSlave which has compatibility issues.
  *
  * Author: MPC Balancing Robot Project
  * Hardware: Pololu Balboa 32U4
  */
 
 #include <Balboa32U4.h>
-#include <PololuRPiSlave.h>
+#include <Wire.h>
 
 // ============================================================================
 // CONFIGURATION
@@ -40,32 +32,25 @@ const float TORQUE_TO_SPEED_GAIN = (float)MOTOR_MAX_SPEED / MOTOR_MAX_TORQUE_NM;
 const unsigned long UPDATE_PERIOD_US = 5000;  // 200 Hz
 
 // ============================================================================
-// I2C DATA STRUCTURE
+// I2C DATA BUFFER
 // ============================================================================
 
-/**
- * I2C Buffer Structure
- *
- * Sensor Data (Read by Raspberry Pi):
- * - uint32: timestamp_us (4 bytes)
- * - float32[2]: encoder L/R (8 bytes)
- * Total: 12 bytes
- *
- * Motor Commands (Written by Raspberry Pi):
- * - float32: torque_left_nm (4 bytes)
- * - float32: torque_right_nm (4 bytes)
- * Total: 8 bytes
- */
-struct I2CData {
-  // Sensor data (read by RPi) - offset 0
-  uint32_t timestamp_us;
-  float encoder_left_rad;
-  float encoder_right_rad;
+// Total buffer: 20 bytes
+// Sensor data (read by RPi): 12 bytes
+// Motor commands (write by RPi): 8 bytes
+uint8_t i2c_buffer[20];
 
-  // Motor commands (written by RPi) - offset 12
-  float torque_left_nm;
-  float torque_right_nm;
-};
+// Buffer offsets
+const uint8_t OFFSET_TIMESTAMP = 0;     // uint32 (4 bytes)
+const uint8_t OFFSET_ENCODER_L = 4;     // float32 (4 bytes)
+const uint8_t OFFSET_ENCODER_R = 8;     // float32 (4 bytes)
+const uint8_t OFFSET_MOTOR_L = 12;      // float32 (4 bytes)
+const uint8_t OFFSET_MOTOR_R = 16;      // float32 (4 bytes)
+
+// Buffer state
+volatile uint8_t i2c_read_index = 0;
+volatile uint8_t i2c_write_index = 0;
+volatile bool i2c_write_mode = false;
 
 // ============================================================================
 // HARDWARE OBJECTS
@@ -74,7 +59,6 @@ struct I2CData {
 Balboa32U4Motors motors;
 Balboa32U4Encoders encoders;
 Balboa32U4ButtonA buttonA;
-PololuRPiSlave<I2CData, 10> rpiSlave;  // Increased buffer overhead from 5 to 10 bytes
 
 // ============================================================================
 // GLOBAL STATE
@@ -96,6 +80,50 @@ bool debug_mode = false;
 unsigned long last_button_check_ms = 0;
 
 // ============================================================================
+// I2C INTERRUPT HANDLERS
+// ============================================================================
+
+// Called when RPi sends data (motor commands)
+void receiveEvent(int byte_count) {
+  if (byte_count == 0) return;
+
+  // First byte is the register/offset address
+  uint8_t offset = Wire.read();
+  i2c_write_index = offset;
+  i2c_write_mode = true;
+
+  // Read remaining bytes into buffer
+  while (Wire.available() && i2c_write_index < 20) {
+    i2c_buffer[i2c_write_index++] = Wire.read();
+  }
+
+  // Update motor commands from buffer
+  if (i2c_write_index > OFFSET_MOTOR_L) {
+    memcpy(&torque_left_nm, &i2c_buffer[OFFSET_MOTOR_L], sizeof(float));
+  }
+  if (i2c_write_index > OFFSET_MOTOR_R) {
+    memcpy(&torque_right_nm, &i2c_buffer[OFFSET_MOTOR_R], sizeof(float));
+  }
+}
+
+// Called when RPi requests data (sensor readings)
+void requestEvent() {
+  if (i2c_write_mode) {
+    // First request after write - send nothing, just set read index
+    i2c_read_index = i2c_write_index;
+    i2c_write_mode = false;
+    return;
+  }
+
+  // Send one byte
+  if (i2c_read_index < 20) {
+    Wire.write(i2c_buffer[i2c_read_index++]);
+  } else {
+    Wire.write(0);  // Send zero if out of bounds
+  }
+}
+
+// ============================================================================
 // SETUP
 // ============================================================================
 
@@ -103,8 +131,10 @@ void setup() {
   // Initialize USB Serial for debugging
   Serial.begin(115200);
 
-  // Initialize I2C slave for Raspberry Pi communication
-  rpiSlave.init(I2C_SLAVE_ADDRESS);
+  // Initialize I2C slave
+  Wire.begin(I2C_SLAVE_ADDRESS);
+  Wire.onReceive(receiveEvent);
+  Wire.onRequest(requestEvent);
 
   // Initialize encoders
   encoders.getCountsAndResetLeft();
@@ -112,6 +142,9 @@ void setup() {
 
   // Initialize motors (stopped)
   motors.setSpeeds(0, 0);
+
+  // Initialize buffer to zeros
+  memset(i2c_buffer, 0, sizeof(i2c_buffer));
 
   // Wait for initialization
   delay(500);
@@ -121,7 +154,7 @@ void setup() {
   delay(500);
   ledGreen(0);
 
-  Serial.println("Balboa 32U4 I2C Slave Ready");
+  Serial.println("Balboa 32U4 I2C Slave Ready (Wire Library)");
   Serial.print("I2C Slave Address: 0x");
   Serial.println(I2C_SLAVE_ADDRESS, HEX);
   Serial.println("Note: IMU read by Raspberry Pi");
@@ -160,12 +193,6 @@ void loop() {
     }
   }
 
-  // Handle I2C communication with Raspberry Pi
-  rpiSlave.updateBuffer();
-
-  // Read motor commands from I2C buffer
-  readMotorCommands();
-
   // Apply motor commands
   applyMotorCommands();
 }
@@ -187,14 +214,6 @@ void readEncoders() {
 // ============================================================================
 // MOTOR FUNCTIONS
 // ============================================================================
-
-void readMotorCommands() {
-  /**
-   * Read motor commands from I2C buffer (written by Raspberry Pi)
-   */
-  torque_left_nm = rpiSlave.buffer.torque_left_nm;
-  torque_right_nm = rpiSlave.buffer.torque_right_nm;
-}
 
 void applyMotorCommands() {
   // Convert torque (N⋅m) to motor speed (PWM)
@@ -224,11 +243,12 @@ void updateI2CBuffer() {
   /**
    * Update I2C buffer with latest sensor data for Raspberry Pi to read
    */
-  rpiSlave.buffer.timestamp_us = micros();
-  rpiSlave.buffer.encoder_left_rad = encoder_left_rad;
-  rpiSlave.buffer.encoder_right_rad = encoder_right_rad;
+  uint32_t timestamp_us = micros();
 
-  // Note: Motor commands are written by RPi, so we don't update them here
+  // Copy data into buffer (little-endian)
+  memcpy(&i2c_buffer[OFFSET_TIMESTAMP], &timestamp_us, sizeof(uint32_t));
+  memcpy(&i2c_buffer[OFFSET_ENCODER_L], &encoder_left_rad, sizeof(float));
+  memcpy(&i2c_buffer[OFFSET_ENCODER_R], &encoder_right_rad, sizeof(float));
 }
 
 // ============================================================================
