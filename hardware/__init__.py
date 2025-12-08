@@ -8,14 +8,13 @@ controller on the physical robot, including:
 """
 
 from .config_loader import load_hardware_mpc, load_hardware_mpc_with_custom_params
-from .i2c_interface import BalboaI2CInterface, RawSensorPacket
+from .i2c_interface import BalboaI2CInterface
 from .hardware_controller import HardwareBalanceController, ControlLoopStats
 
 __all__ = [
     'load_hardware_mpc',
     'load_hardware_mpc_with_custom_params',
     'BalboaI2CInterface',
-    'RawSensorPacket',
     'HardwareBalanceController',
     'ControlLoopStats',
 ]
