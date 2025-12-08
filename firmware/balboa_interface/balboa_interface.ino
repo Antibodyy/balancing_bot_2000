@@ -74,7 +74,7 @@ struct I2CData {
 Balboa32U4Motors motors;
 Balboa32U4Encoders encoders;
 Balboa32U4ButtonA buttonA;
-PololuRPiSlave<I2CData, 5> rpiSlave;
+PololuRPiSlave<I2CData, 10> rpiSlave;  // Increased buffer overhead from 5 to 10 bytes
 
 // ============================================================================
 // GLOBAL STATE

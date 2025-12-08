@@ -197,19 +197,21 @@ class BalboaI2CInterface:
             return None
 
     def _read_encoders(self) -> Optional[tuple]:
-        """Read encoder data from Balboa.
+        """Read encoder data from Balboa using PololuRPiSlave protocol.
 
         Returns:
             Tuple of (timestamp_us, encoder_left_rad, encoder_right_rad), or None on error
         """
         try:
-            # Read 12 bytes from Balboa (timestamp + 2 encoders)
-            data = self._bus.read_i2c_block_data(
-                self._balboa_addr, 0, self.BALBOA_DATA_SIZE
-            )
+            # PololuRPiSlave protocol: write address, wait, then read individual bytes
+            self._bus.write_byte(self._balboa_addr, 0)  # Write offset 0 (sensor data start)
+            time.sleep(0.0001)  # 100µs delay required by AVR TWI module
+
+            # Read 12 bytes individually (not block read!)
+            byte_list = [self._bus.read_byte(self._balboa_addr) for _ in range(self.BALBOA_DATA_SIZE)]
 
             # Unpack: uint32 timestamp, 2×float32 encoders
-            values = struct.unpack('<Iff', bytes(data))
+            values = struct.unpack('<Iff', bytes(byte_list))
             return values[0], values[1], values[2]
 
         except IOError as e:
@@ -258,7 +260,7 @@ class BalboaI2CInterface:
     def send_motor_command(
         self, torque_left_nm: float, torque_right_nm: float
     ) -> bool:
-        """Send torque commands to motors via I2C.
+        """Send torque commands to motors via I2C using PololuRPiSlave protocol.
 
         Args:
             torque_left_nm: Left wheel torque (N⋅m), positive = forward
@@ -271,12 +273,13 @@ class BalboaI2CInterface:
             # Pack motor commands as two float32 values
             data = struct.pack('<ff', torque_left_nm, torque_right_nm)
 
-            # Write to motor command offset (byte 12-19)
+            # Write to motor command offset (byte 12-19) using PololuRPiSlave protocol
             self._bus.write_i2c_block_data(
                 self._balboa_addr,
                 self.OFFSET_TORQUE_L,
                 list(data)
             )
+            time.sleep(0.0001)  # 100µs delay required by AVR TWI module
 
             return True
 
