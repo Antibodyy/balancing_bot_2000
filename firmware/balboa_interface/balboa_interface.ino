@@ -75,6 +75,10 @@ float torque_right_nm = 0.0;
 unsigned long last_imu_time_us = 0;
 unsigned long last_packet_time_ms = 0;
 
+// Debug mode
+bool debug_mode = false;
+unsigned long last_button_check_ms = 0;
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -126,6 +130,24 @@ void setup() {
 
 void loop() {
   unsigned long current_time_us = micros();
+  unsigned long current_time_ms = millis();
+
+  // Check button A to toggle debug mode (debounced)
+  if (current_time_ms - last_button_check_ms >= 200) {  // Check every 200ms
+    last_button_check_ms = current_time_ms;
+    if (buttonA.getSingleDebouncedPress()) {
+      debug_mode = !debug_mode;
+      if (debug_mode) {
+        Serial.println("\n\n=== DEBUG MODE ENABLED ===");
+        Serial.println("Human-readable output active");
+        Serial.println("Press button A again to return to binary mode");
+        Serial.println("===========================\n");
+      } else {
+        Serial.println("\n=== BINARY MODE ENABLED ===\n");
+        delay(100);  // Let message send before switching to binary
+      }
+    }
+  }
 
   // Read IMU at fixed rate
   if (current_time_us - last_imu_time_us >= IMU_SAMPLE_PERIOD_US) {
@@ -135,8 +157,8 @@ void loop() {
     sendSensorPacket();
   }
 
-  // Check for incoming control packets
-  if (Serial.available() >= 10) {  // Control packet size
+  // Check for incoming control packets (only in binary mode)
+  if (!debug_mode && Serial.available() >= 10) {  // Control packet size
     receiveControlPacket();
   }
 
@@ -223,7 +245,37 @@ void sendSensorPacket() {
    * - uint8: checksum
    */
 
-  byte packet[45];
+  // Debug mode: print human-readable data
+  if (debug_mode) {
+    static unsigned long last_debug_print_ms = 0;
+    unsigned long now = millis();
+
+    // Print at 10 Hz in debug mode (not 200 Hz - too fast to read!)
+    if (now - last_debug_print_ms >= 100) {
+      last_debug_print_ms = now;
+
+      Serial.println("--- Sensor Data ---");
+      Serial.print("Timestamp: "); Serial.print(micros()); Serial.println(" us");
+      Serial.print("Accel (m/s²):  X="); Serial.print(accel_x_mps2, 4);
+      Serial.print(" Y="); Serial.print(accel_y_mps2, 4);
+      Serial.print(" Z="); Serial.print(accel_z_mps2, 4);
+      Serial.print(" |Mag|="); Serial.println(sqrt(accel_x_mps2*accel_x_mps2 +
+                                                     accel_y_mps2*accel_y_mps2 +
+                                                     accel_z_mps2*accel_z_mps2), 4);
+      Serial.print("Gyro (rad/s):  X="); Serial.print(gyro_x_radps, 4);
+      Serial.print(" Y="); Serial.print(gyro_y_radps, 4);
+      Serial.print(" Z="); Serial.println(gyro_z_radps, 4);
+      Serial.print("Encoders (rad): L="); Serial.print(encoder_left_rad, 4);
+      Serial.print(" R="); Serial.println(encoder_right_rad, 4);
+      Serial.print("Motors (Nm):    L="); Serial.print(torque_left_nm, 4);
+      Serial.print(" R="); Serial.println(torque_right_nm, 4);
+      Serial.println();
+    }
+    return;  // Don't send binary packet in debug mode
+  }
+
+  // Binary mode: send packet as before
+  byte packet[38];  // 1 + 4 + 12 + 12 + 8 + 1 = 38 bytes
   int idx = 0;
 
   // Header

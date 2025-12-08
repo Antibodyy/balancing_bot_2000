@@ -23,8 +23,8 @@ from control_pipeline import SensorData
 # Protocol constants
 CONTROL_PACKET_HEADER = 0xAA
 SENSOR_PACKET_HEADER = 0xBB
-CONTROL_PACKET_SIZE = 13  # header + 2*float32 + checksum
-SENSOR_PACKET_SIZE = 45    # header + timestamp + 6*float32 + checksum
+CONTROL_PACKET_SIZE = 10  # header(1) + 2*float32(8) + checksum(1) = 10
+SENSOR_PACKET_SIZE = 38   # header(1) + timestamp(4) + 8*float32(32) + checksum(1) = 38
 
 
 @dataclass
@@ -95,11 +95,6 @@ class BalboaSerialInterface:
         # Flush any startup garbage
         self._serial.reset_input_buffer()
         self._serial.reset_output_buffer()
-
-        # Track previous encoder values for velocity estimation
-        self._prev_encoder_left_rad: Optional[float] = None
-        self._prev_encoder_right_rad: Optional[float] = None
-        self._prev_timestamp_s: Optional[float] = None
 
     def read_sensors(self) -> Optional[SensorData]:
         """Read and parse sensor packet from Arduino.
@@ -187,39 +182,20 @@ class BalboaSerialInterface:
 
         Returns:
             SensorData object compatible with BalanceController
+
+        Note:
+            The controller computes encoder velocities internally from positions,
+            so we only need to provide the raw position measurements here.
         """
         # Convert timestamp to seconds
         timestamp_s = raw.timestamp_us / 1e6
 
-        # Compute time delta for velocity estimation
-        if self._prev_timestamp_s is not None:
-            dt = timestamp_s - self._prev_timestamp_s
-        else:
-            dt = 0.02  # Assume 50 Hz if first sample
-
-        # Estimate encoder velocities (rad/s) via finite difference
-        # Note: This is a simple estimate - for better results, could use
-        # low-pass filtering or the Arduino could send velocities directly
-        if self._prev_encoder_left_rad is not None:
-            encoder_left_vel_radps = (raw.encoder_left_rad - self._prev_encoder_left_rad) / dt
-            encoder_right_vel_radps = (raw.encoder_right_rad - self._prev_encoder_right_rad) / dt
-        else:
-            encoder_left_vel_radps = 0.0
-            encoder_right_vel_radps = 0.0
-
-        # Update previous values for next iteration
-        self._prev_encoder_left_rad = raw.encoder_left_rad
-        self._prev_encoder_right_rad = raw.encoder_right_rad
-        self._prev_timestamp_s = timestamp_s
-
-        # Pack into SensorData format
+        # Pack into SensorData format (controller will compute velocities)
         return SensorData(
             acceleration_mps2=np.array([raw.accel_x_mps2, raw.accel_y_mps2, raw.accel_z_mps2]),
             angular_velocity_radps=np.array([raw.gyro_x_radps, raw.gyro_y_radps, raw.gyro_z_radps]),
             encoder_left_rad=raw.encoder_left_rad,
             encoder_right_rad=raw.encoder_right_rad,
-            encoder_left_velocity_radps=encoder_left_vel_radps,
-            encoder_right_velocity_radps=encoder_right_vel_radps,
             timestamp_s=timestamp_s
         )
 
