@@ -1,0 +1,13 @@
+# State Estimator Configuration Parameters
+# Single source of truth per style_guide.md section 4.4
+
+# Complementary filter settings
+complementary_filter_time_constant_s: 0.1  # Filter time constant (tau)
+
+# Sampling period (should match control loop)
+sampling_period_s: 0.02  # 50 Hz
+
+# Future: EKF noise parameters (not implemented yet)
+# process_noise_diagonal: [0.001, 0.0001, 0.001, 0.01, 0.001, 0.01]
+# measurement_noise_imu: [0.1, 0.01]
+# measurement_noise_encoder: [0.001]

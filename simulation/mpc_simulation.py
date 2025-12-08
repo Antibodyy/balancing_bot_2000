@@ -75,9 +75,9 @@ class SimulationConfig:
     """
 
     model_path: str = 'robot_model.xml'
-    robot_params_path: str = 'config/robot_params.yaml'
-    mpc_params_path: str = 'config/mpc_params.yaml'
-    estimator_params_path: str = 'config/estimator_params.yaml'
+    robot_params_path: str = 'config/simulation/robot_params.yaml'
+    mpc_params_path: str = 'config/simulation/mpc_params.yaml'
+    estimator_params_path: str = 'config/simulation/estimator_params.yaml'
     duration_s: float = 10.0
     render: bool = False
     record_video: bool = False
@@ -548,9 +548,12 @@ class MPCSimulation:
         """Run simulation with interactive MuJoCo viewer.
 
         This is a blocking call that opens the MuJoCo viewer window.
+        The simulation runs indefinitely until:
+        - User closes the viewer window, OR
+        - Robot falls (pitch exceeds pitch_limit_rad)
 
         Args:
-            duration_s: Simulation duration (uses config default if None)
+            duration_s: IGNORED in viewer mode (kept for API consistency)
             initial_pitch_rad: Initial pitch perturbation from equilibrium
             reference_command: Reference command (uses BALANCE if None)
 
@@ -592,60 +595,55 @@ class MPCSimulation:
         deadline_violations = 0
         success = True
 
-        # Control callback for viewer
-        def control_callback(model: Any, data: Any) -> None:
-            nonlocal deadline_violations, success
-
-            sim_time = data.time
-
-            # Only run MPC at MPC rate (every mpc_period)
-            step_idx = int(sim_time / mpc_period)
-            expected_time = step_idx * mpc_period
-
-            # Check if this is a new MPC step
-            if len(time_list) == 0 or abs(sim_time - expected_time) < mujoco_timestep / 2:
-                if len(time_list) > 0 and abs(time_list[-1] - expected_time) < mpc_period / 2:
-                    return  # Already processed this step
-
-                # Build sensor data
-                sensor_data = self._build_sensor_data(sim_time)
-
-                # FIX: Provide true ground velocity to controller (for simulation mode)
-                self._controller._true_ground_velocity = data.qvel[self.FREE_JOINT_VEL_START]
-
-                # Run controller
-                output = self._controller.step(sensor_data, command)
-
-                # Log data
-                time_list.append(sim_time)
-                state_list.append(self._extract_state())
-                control_list.append([output.torque_left_nm, output.torque_right_nm])
-                estimate_list.append(output.state_estimate.copy())
-                solve_time_list.append(output.mpc_solution.solve_time_s)
-                reference_list.append(output.mpc_solution.predicted_trajectory.copy())
-
-                # Check deadline
-                if output.timing.total_time_s > mpc_period:
-                    deadline_violations += 1
-
-                # Apply control
-                self._apply_control(output.torque_left_nm, output.torque_right_nm)
-
-                # Check if fallen
-                if self._check_fallen(state_list[-1]):
-                    success = False
-
-        # Set callback using module-level mujoco
+        # Launch passive viewer with manual control loop
         import mujoco as mj
         import mujoco.viewer as mj_viewer
 
-        mj.set_mjcb_control(control_callback)
+        last_mpc_time = 0.0
 
-        # Launch viewer (blocking)
-        try:
-            mj_viewer.launch(self._model, self._data)
-        finally:
-            mj.set_mjcb_control(None)
+        with mj_viewer.launch_passive(self._model, self._data) as viewer:
+            while viewer.is_running():
+                current_sim_time = self._data.time
+
+                # Run MPC when period elapses
+                if current_sim_time - last_mpc_time >= mpc_period - (mujoco_timestep * 0.5):
+                    # Check for duplicate step
+                    if len(time_list) == 0 or abs(current_sim_time - time_list[-1]) >= mpc_period * 0.5:
+                        # Build sensor data
+                        sensor_data = self._build_sensor_data(current_sim_time)
+
+                        # FIX: Provide true ground velocity to controller (for simulation mode)
+                        self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+
+                        # Run controller
+                        output = self._controller.step(sensor_data, command)
+
+                        # Log data
+                        time_list.append(current_sim_time)
+                        state_list.append(self._extract_state())
+                        control_list.append([output.torque_left_nm, output.torque_right_nm])
+                        estimate_list.append(output.state_estimate.copy())
+                        solve_time_list.append(output.mpc_solution.solve_time_s)
+                        reference_list.append(output.mpc_solution.predicted_trajectory.copy())
+
+                        # Check deadline
+                        if output.timing.total_time_s > mpc_period:
+                            deadline_violations += 1
+
+                        # Apply control
+                        self._apply_control(output.torque_left_nm, output.torque_right_nm)
+
+                        # Check if fallen - close viewer and exit
+                        if self._check_fallen(state_list[-1]):
+                            success = False
+                            viewer.close()
+                            break
+
+                        last_mpc_time = current_sim_time
+
+                # Step physics and sync viewer
+                mj.mj_step(self._model, self._data)
+                viewer.sync()
 
         wall_duration = time.perf_counter() - wall_start
 
