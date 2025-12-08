@@ -63,6 +63,11 @@ float gyro_x_radps = 0.0;
 float gyro_y_radps = 0.0;
 float gyro_z_radps = 0.0;
 
+// Gyro calibration (zero offsets)
+float gyro_offset_x = 0.0;
+float gyro_offset_y = 0.0;
+float gyro_offset_z = 0.0;
+
 // Encoder data (in radians)
 float encoder_left_rad = 0.0;
 float encoder_right_rad = 0.0;
@@ -102,11 +107,35 @@ void setup() {
   }
 
   // Configure IMU
-  imu.enableDefault();
-  // Configure accelerometer: ±4g, 208 Hz
-  imu.writeReg(LSM6::CTRL1_XL, 0b01010100);
-  // Configure gyroscope: ±500 dps, 208 Hz
-  imu.writeReg(LSM6::CTRL2_G, 0b01010100);
+  // Don't use enableDefault() - it may set wrong scales
+  // Configure accelerometer: ODR=208Hz, FS=±4g
+  // CTRL1_XL: [ODR_XL3 ODR_XL2 ODR_XL1 ODR_XL0 FS_XL1 FS_XL0 BW_XL1 BW_XL0]
+  // ODR = 0101 (208 Hz), FS = 10 (±4g), BW = 00 (400 Hz filter)
+  imu.writeReg(LSM6::CTRL1_XL, 0b01011000);  // 0x58
+
+  // Configure gyroscope: ODR=208Hz, FS=±500dps
+  // CTRL2_G: [ODR_G3 ODR_G2 ODR_G1 ODR_G0 FS_G1 FS_G0 FS_125 0]
+  // ODR = 0101 (208 Hz), FS = 01 (±500 dps)
+  imu.writeReg(LSM6::CTRL2_G, 0b01010100);  // 0x54
+
+  // Enable block data update (BDU) - prevents reading during update
+  imu.writeReg(LSM6::CTRL3_C, 0b01000100);  // 0x44
+
+  // Verify configuration
+  delay(10);  // Let registers settle
+  uint8_t ctrl1_xl = imu.readReg(LSM6::CTRL1_XL);
+  uint8_t ctrl2_g = imu.readReg(LSM6::CTRL2_G);
+
+  // Check if registers were set correctly
+  if (ctrl1_xl != 0b01011000 || ctrl2_g != 0b01010100) {
+    // Configuration verification failed - blink yellow LED
+    while (1) {
+      ledYellow(1);
+      delay(100);
+      ledYellow(0);
+      delay(100);
+    }
+  }
 
   // Initialize encoders
   encoders.getCountsAndResetLeft();
@@ -114,6 +143,12 @@ void setup() {
 
   // Initialize motors (stopped)
   motors.setSpeeds(0, 0);
+
+  // Calibrate gyroscope (measure zero offsets)
+  // Robot must be stationary during this!
+  ledYellow(1);  // Yellow LED during calibration
+  calibrateGyro();
+  ledYellow(0);
 
   // Wait for serial connection (optional)
   delay(500);
@@ -170,6 +205,33 @@ void loop() {
 // IMU FUNCTIONS
 // ============================================================================
 
+void calibrateGyro() {
+  /**
+   * Calibrate gyroscope by measuring zero offsets.
+   * Robot must be stationary during calibration!
+   */
+  const int num_samples = 100;
+  const float gyro_scale = 17.50e-3 * (PI / 180.0);
+
+  float sum_x = 0.0;
+  float sum_y = 0.0;
+  float sum_z = 0.0;
+
+  // Collect samples
+  for (int i = 0; i < num_samples; i++) {
+    imu.read();
+    sum_x += imu.g.x * gyro_scale;
+    sum_y += imu.g.y * gyro_scale;
+    sum_z += imu.g.z * gyro_scale;
+    delay(10);  // 10ms between samples
+  }
+
+  // Compute average (bias)
+  gyro_offset_x = sum_x / num_samples;
+  gyro_offset_y = sum_y / num_samples;
+  gyro_offset_z = sum_z / num_samples;
+}
+
 void readIMU() {
   imu.read();
 
@@ -181,13 +243,13 @@ void readIMU() {
   accel_y_mps2 = imu.a.y * accel_scale;
   accel_z_mps2 = imu.a.z * accel_scale;
 
-  // Convert gyroscope to rad/s
+  // Convert gyroscope to rad/s and subtract calibrated offsets
   // LSM6DS33 ±500 dps mode: 1 LSB = 17.50 mdps
   // Conversion: raw * 17.50e-3 * (π/180) rad/s
   const float gyro_scale = 17.50e-3 * (PI / 180.0);
-  gyro_x_radps = imu.g.x * gyro_scale;
-  gyro_y_radps = imu.g.y * gyro_scale;
-  gyro_z_radps = imu.g.z * gyro_scale;
+  gyro_x_radps = imu.g.x * gyro_scale - gyro_offset_x;
+  gyro_y_radps = imu.g.y * gyro_scale - gyro_offset_y;
+  gyro_z_radps = imu.g.z * gyro_scale - gyro_offset_z;
 }
 
 // ============================================================================
@@ -236,13 +298,14 @@ int16_t torqueToSpeed(float torque_nm) {
 
 void sendSensorPacket() {
   /**
-   * Sensor packet format (45 bytes):
-   * - uint8: header (0xBB)
-   * - uint32: timestamp (microseconds)
-   * - float32[3]: accelerometer XYZ (m/s²)
-   * - float32[3]: gyroscope XYZ (rad/s)
-   * - float32[2]: encoder L/R (radians)
-   * - uint8: checksum
+   * Sensor packet format (38 bytes):
+   * - uint8: header (0xBB)                    [1 byte]
+   * - uint32: timestamp (microseconds)        [4 bytes]
+   * - float32[3]: accelerometer XYZ (m/s²)    [12 bytes]
+   * - float32[3]: gyroscope XYZ (rad/s)       [12 bytes]
+   * - float32[2]: encoder L/R (radians)       [8 bytes]
+   * - uint8: checksum                         [1 byte]
+   * Total: 1 + 4 + 12 + 12 + 8 + 1 = 38 bytes
    */
 
   // Debug mode: print human-readable data
