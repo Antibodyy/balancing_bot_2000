@@ -101,6 +101,10 @@ class BalboaI2CInterface:
     def _init_imu(self):
         """Initialize IMU sensors via I2C."""
         try:
+            # Soft reset the IMU to ensure clean state
+            self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b00000001)  # SW_RESET bit
+            time.sleep(0.05)  # Wait for reset to complete
+
             # Configure accelerometer: ODR=208Hz, FS=±4g
             self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL1_XL, 0b01011000)
             time.sleep(0.01)
@@ -109,7 +113,7 @@ class BalboaI2CInterface:
             self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL2_G, 0b01010100)
             time.sleep(0.01)
 
-            # Enable block data update
+            # Enable block data update and auto-increment
             self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b01000100)
 
             # Wait for IMU to stabilize and start producing data (at least one sample period)
