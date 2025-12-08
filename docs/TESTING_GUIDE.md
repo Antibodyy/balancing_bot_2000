@@ -4,10 +4,22 @@ Comprehensive guide for testing and debugging the balancing bot MPC controller.
 
 ## Quick Start
 
+### Setup
+
+**Important:** All scripts require the project root in PYTHONPATH. Either:
+
+```bash
+# Option 1: Set for each command
+PYTHONPATH=. python3 script_name.py
+
+# Option 2: Export for your session
+export PYTHONPATH=$(pwd):$PYTHONPATH
+```
+
 ### Running Tests
 
 ```bash
-# All unit tests
+# All unit tests (pytest doesn't need PYTHONPATH)
 python3 -m pytest tests/
 
 # Specific test category
@@ -24,13 +36,13 @@ python3 -m pytest --cov=. tests/
 
 ```bash
 # Fastest diagnostic check (1 second simulation)
-python3 scripts/debug/quick_check.py
+PYTHONPATH=. python3 scripts/debug/quick_check.py
 
 # Test multiple perturbation sizes
-python3 scripts/debug/debug_perturbation.py
+PYTHONPATH=. python3 scripts/debug/debug_perturbation.py
 
 # Visual confirmation with MuJoCo viewer
-python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
+PYTHONPATH=. python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 ```
 
 ## Test Categories
@@ -38,11 +50,6 @@ python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 ### Unit Tests (tests/)
 
 **Purpose:** Verify individual components work correctly in isolation.
-
-**When to run:**
-- Before every commit
-- After modifying any component
-- During CI/CD pipeline
 
 **Test files:**
 - `test_parameters.py` - Parameter loading and validation
@@ -60,7 +67,10 @@ python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 **Success criteria:**
 - All assertions pass
 - No runtime errors
-- Execution time < 60 seconds total
+
+**Test files:**
+- `test_parameters.py` - Parameter loading and validation
+- `test_dynamics.py` - 
 
 ### Regression Tests (tests/regression/)
 
@@ -112,7 +122,7 @@ Validates dynamics model matches MuJoCo (requires MuJoCo installed).
 - **Output:** 4 diagnostic plots in `debug_output/quick_check/`
 
 ```bash
-python3 scripts/debug/quick_check.py
+PYTHONPATH=. python3 scripts/debug/quick_check.py
 ```
 
 #### debug_perturbation.py
@@ -124,10 +134,10 @@ python3 scripts/debug/quick_check.py
 
 ```bash
 # Headless batch test
-python3 scripts/debug/debug_perturbation.py
+PYTHONPATH=. python3 scripts/debug/debug_perturbation.py
 
 # Interactive single test
-python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
+PYTHONPATH=. python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 ```
 
 #### debug_force_disturbance.py
@@ -136,7 +146,7 @@ python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 - **Output:** Timeline plots showing disturbance response
 
 ```bash
-python3 scripts/debug/debug_force_disturbance.py
+PYTHONPATH=. python3 scripts/debug/debug_force_disturbance.py
 ```
 
 #### debug_velocity_viewer.py
@@ -144,7 +154,7 @@ python3 scripts/debug/debug_force_disturbance.py
 - **Shows:** Real-time velocity estimation monitoring
 
 ```bash
-python3 scripts/debug/debug_velocity_viewer.py
+PYTHONPATH=. python3 scripts/debug/debug_velocity_viewer.py
 ```
 
 #### debug_viewer_timing.py
@@ -152,7 +162,7 @@ python3 scripts/debug/debug_velocity_viewer.py
 - **Shows:** MPC performance profiling with visualization
 
 ```bash
-python3 scripts/debug/debug_viewer_timing.py
+PYTHONPATH=. python3 scripts/debug/debug_viewer_timing.py
 ```
 
 #### debug_compare_fix.py
@@ -160,7 +170,7 @@ python3 scripts/debug/debug_viewer_timing.py
 - **Shows:** Side-by-side comparison of two approaches
 
 ```bash
-python3 scripts/debug/debug_compare_fix.py
+PYTHONPATH=. python3 scripts/debug/debug_compare_fix.py
 ```
 
 ### Validation Scripts (scripts/validation/)
@@ -181,7 +191,7 @@ Compares robot parameters to MuJoCo model geometry.
 - Geometric dimensions
 
 ```bash
-python3 scripts/validation/check_dynamics_match.py
+PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
 ```
 
 #### compare_mujoco_dynamics.py
@@ -193,7 +203,7 @@ Numerical comparison of state derivatives.
 3. Compare resulting accelerations
 
 ```bash
-python3 scripts/validation/compare_mujoco_dynamics.py
+PYTHONPATH=. python3 scripts/validation/compare_mujoco_dynamics.py
 ```
 
 #### extract_mujoco_matrices.py
@@ -202,7 +212,7 @@ Extracts mass matrix and dynamics from MuJoCo.
 **Use when:** Need ground truth for validation
 
 ```bash
-python3 scripts/validation/extract_mujoco_matrices.py
+PYTHONPATH=. python3 scripts/validation/extract_mujoco_matrices.py
 ```
 
 ### Viewer Utilities (scripts/viewer/)
@@ -215,7 +225,7 @@ Display robot model in MuJoCo viewer.
 **Use when:** Verifying URDF/XML model geometry
 
 ```bash
-python3 scripts/viewer/view_robot.py
+PYTHONPATH=. python3 scripts/viewer/view_robot.py
 ```
 
 ## Understanding Diagnostic Outputs
@@ -334,7 +344,7 @@ Outcome:
 - Control seems reasonable but doesn't work
 
 **Fix:**
-- Run `python3 scripts/validation/check_dynamics_match.py`
+- Run `PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py`
 - Verify parameters match MuJoCo
 - Check linearization accuracy
 
@@ -377,7 +387,7 @@ Outcome:
 
 1. **Quick sanity check**
    ```bash
-   python3 scripts/debug/quick_check.py
+   PYTHONPATH=. python3 scripts/debug/quick_check.py
    ```
 
 2. **Check diagnostic plots**
@@ -393,13 +403,13 @@ Outcome:
 
 4. **If model mismatch suspected**
    ```bash
-   python3 scripts/validation/check_dynamics_match.py
-   python3 scripts/validation/compare_mujoco_dynamics.py
+   PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
+   PYTHONPATH=. python3 scripts/validation/compare_mujoco_dynamics.py
    ```
 
 5. **If performance issues**
    ```bash
-   python3 scripts/debug/debug_viewer_timing.py
+   PYTHONPATH=. python3 scripts/debug/debug_viewer_timing.py
    ```
 
 6. **If state estimation issues**
@@ -415,7 +425,7 @@ Outcome:
 python3 -m pytest tests/
 
 # Quick diagnostic check
-python3 scripts/debug/quick_check.py
+PYTHONPATH=. python3 scripts/debug/quick_check.py
 ```
 
 ### Before Merging PR
@@ -424,27 +434,27 @@ python3 scripts/debug/quick_check.py
 python3 -m pytest tests/ tests/regression/
 
 # Full diagnostic suite
-python3 scripts/debug/debug_perturbation.py
+PYTHONPATH=. python3 scripts/debug/debug_perturbation.py
 ```
 
 ### After Dynamics Changes
 ```bash
 # Verify model matches MuJoCo
-python3 scripts/validation/check_dynamics_match.py
+PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
 
 # Run dynamics tests
 python3 -m pytest tests/test_dynamics.py tests/test_linearization.py
 ```
 
 ### Tuning Controller
-1. Run `python3 scripts/debug/debug_perturbation.py --viewer`
+1. Run `PYTHONPATH=. python3 scripts/debug/debug_perturbation.py --viewer`
 2. Observe behavior visually
 3. Modify `config/mpc_params.yaml`
 4. Repeat until satisfactory
 5. Run regression tests to verify
 
 ### Investigating Failures
-1. Run `python3 scripts/debug/quick_check.py`
+1. Run `PYTHONPATH=. python3 scripts/debug/quick_check.py`
 2. Check plots in `debug_output/quick_check/`
 3. Identify failure mode from plots
 4. Run targeted script (velocity_viewer, force_disturbance, etc.)

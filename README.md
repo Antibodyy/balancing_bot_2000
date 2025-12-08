@@ -6,30 +6,42 @@ Two-wheeled self-balancing robot controlled with Model Predictive Control (MPC).
 
 ## Quick Start
 
+### Setup
+
+All Python commands need the project root in PYTHONPATH:
+
+```bash
+# Option 1: Set PYTHONPATH for each command
+PYTHONPATH=. python3 script_name.py
+
+# Option 2: Export PYTHONPATH for your session
+export PYTHONPATH=/home/diego/balancing_bot_2000:$PYTHONPATH
+```
+
 ### Running Tests
 
 ```bash
 # All unit tests
-pytest tests/
+python3 -m pytest tests/
 
 # Regression tests
-pytest tests/regression/
+python3 -m pytest tests/regression/
 
 # Quick diagnostic check
-python scripts/debug/quick_check.py
+PYTHONPATH=. python3 scripts/debug/quick_check.py
 ```
 
 ### Development
 
 ```bash
 # Run simulation with visualization
-python mads.py
+PYTHONPATH=. python3 mads.py
 
 # Validate dynamics model
-python scripts/validation/check_dynamics_match.py
+PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
 
 # View robot model
-python scripts/viewer/view_robot.py
+PYTHONPATH=. python3 scripts/viewer/view_robot.py
 ```
 
 ## Directory Structure
