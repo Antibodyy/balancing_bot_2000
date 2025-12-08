@@ -71,11 +71,11 @@ def test_effective_mass_computation():
     """Test computed effective mass property."""
     params = RobotParameters.from_yaml('config/robot_params.yaml')
 
-    # M_eff = M + m + 2*J_w/r^2
+    # M_eff = M + 2*m (MuJoCo model: wheels are separate bodies with own DOFs)
+    # NOTE: Does NOT include 2*J_w/r^2 term (that's for quasi-static wheels)
     expected_effective_mass = (
         params.body_mass_kg +
-        2 * params.wheel_mass_kg +
-        2 * params.wheel_inertia_kg_m2 / (params.wheel_radius_m ** 2)
+        2 * params.wheel_mass_kg
     )
 
     assert abs(params.effective_mass_kg - expected_effective_mass) < 1e-10

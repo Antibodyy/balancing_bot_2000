@@ -8,29 +8,29 @@ Comprehensive guide for testing and debugging the balancing bot MPC controller.
 
 ```bash
 # All unit tests
-pytest tests/
+python3 -m pytest tests/
 
 # Specific test category
-pytest tests/test_dynamics.py
+python3 -m pytest tests/test_dynamics.py
 
 # Regression tests
-pytest tests/regression/
+python3 -m pytest tests/regression/
 
 # With coverage
-pytest --cov=. tests/
+python3 -m pytest --cov=. tests/
 ```
 
 ### Quick Diagnostics
 
 ```bash
 # Fastest diagnostic check (1 second simulation)
-python scripts/debug/quick_check.py
+python3 scripts/debug/quick_check.py
 
 # Test multiple perturbation sizes
-python scripts/debug/debug_perturbation.py
+python3 scripts/debug/debug_perturbation.py
 
 # Visual confirmation with MuJoCo viewer
-python scripts/debug/debug_perturbation.py --viewer --perturbation 3
+python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 ```
 
 ## Test Categories
@@ -112,7 +112,7 @@ Validates dynamics model matches MuJoCo (requires MuJoCo installed).
 - **Output:** 4 diagnostic plots in `debug_output/quick_check/`
 
 ```bash
-python scripts/debug/quick_check.py
+python3 scripts/debug/quick_check.py
 ```
 
 #### debug_perturbation.py
@@ -124,10 +124,10 @@ python scripts/debug/quick_check.py
 
 ```bash
 # Headless batch test
-python scripts/debug/debug_perturbation.py
+python3 scripts/debug/debug_perturbation.py
 
 # Interactive single test
-python scripts/debug/debug_perturbation.py --viewer --perturbation 3
+python3 scripts/debug/debug_perturbation.py --viewer --perturbation 3
 ```
 
 #### debug_force_disturbance.py
@@ -136,7 +136,7 @@ python scripts/debug/debug_perturbation.py --viewer --perturbation 3
 - **Output:** Timeline plots showing disturbance response
 
 ```bash
-python scripts/debug/debug_force_disturbance.py
+python3 scripts/debug/debug_force_disturbance.py
 ```
 
 #### debug_velocity_viewer.py
@@ -144,7 +144,7 @@ python scripts/debug/debug_force_disturbance.py
 - **Shows:** Real-time velocity estimation monitoring
 
 ```bash
-python scripts/debug/debug_velocity_viewer.py
+python3 scripts/debug/debug_velocity_viewer.py
 ```
 
 #### debug_viewer_timing.py
@@ -152,7 +152,7 @@ python scripts/debug/debug_velocity_viewer.py
 - **Shows:** MPC performance profiling with visualization
 
 ```bash
-python scripts/debug/debug_viewer_timing.py
+python3 scripts/debug/debug_viewer_timing.py
 ```
 
 #### debug_compare_fix.py
@@ -160,7 +160,7 @@ python scripts/debug/debug_viewer_timing.py
 - **Shows:** Side-by-side comparison of two approaches
 
 ```bash
-python scripts/debug/debug_compare_fix.py
+python3 scripts/debug/debug_compare_fix.py
 ```
 
 ### Validation Scripts (scripts/validation/)
@@ -181,7 +181,7 @@ Compares robot parameters to MuJoCo model geometry.
 - Geometric dimensions
 
 ```bash
-python scripts/validation/check_dynamics_match.py
+python3 scripts/validation/check_dynamics_match.py
 ```
 
 #### compare_mujoco_dynamics.py
@@ -193,7 +193,7 @@ Numerical comparison of state derivatives.
 3. Compare resulting accelerations
 
 ```bash
-python scripts/validation/compare_mujoco_dynamics.py
+python3 scripts/validation/compare_mujoco_dynamics.py
 ```
 
 #### extract_mujoco_matrices.py
@@ -202,7 +202,7 @@ Extracts mass matrix and dynamics from MuJoCo.
 **Use when:** Need ground truth for validation
 
 ```bash
-python scripts/validation/extract_mujoco_matrices.py
+python3 scripts/validation/extract_mujoco_matrices.py
 ```
 
 ### Viewer Utilities (scripts/viewer/)
@@ -215,7 +215,7 @@ Display robot model in MuJoCo viewer.
 **Use when:** Verifying URDF/XML model geometry
 
 ```bash
-python scripts/viewer/view_robot.py
+python3 scripts/viewer/view_robot.py
 ```
 
 ## Understanding Diagnostic Outputs
@@ -334,7 +334,7 @@ Outcome:
 - Control seems reasonable but doesn't work
 
 **Fix:**
-- Run `python scripts/validation/check_dynamics_match.py`
+- Run `python3 scripts/validation/check_dynamics_match.py`
 - Verify parameters match MuJoCo
 - Check linearization accuracy
 
@@ -348,7 +348,7 @@ Outcome:
 **Fix:**
 - Check complementary filter gains in `config/estimator_params.yaml`
 - Verify sensor data is correct
-- Run `pytest tests/test_state_estimation.py`
+- Run `python3 -m pytest tests/test_state_estimation.py`
 
 ### Pattern 4: Performance Issues
 
@@ -377,7 +377,7 @@ Outcome:
 
 1. **Quick sanity check**
    ```bash
-   python scripts/debug/quick_check.py
+   python3 scripts/debug/quick_check.py
    ```
 
 2. **Check diagnostic plots**
@@ -389,22 +389,22 @@ Outcome:
 3. **If control direction is wrong**
    - Verify dynamics signs in `robot_dynamics/`
    - Check control sign in `control_pipeline/controller.py`
-   - Run `pytest tests/test_mpc_solver.py`
+   - Run `python3 -m pytest tests/test_mpc_solver.py`
 
 4. **If model mismatch suspected**
    ```bash
-   python scripts/validation/check_dynamics_match.py
-   python scripts/validation/compare_mujoco_dynamics.py
+   python3 scripts/validation/check_dynamics_match.py
+   python3 scripts/validation/compare_mujoco_dynamics.py
    ```
 
 5. **If performance issues**
    ```bash
-   python scripts/debug/debug_viewer_timing.py
+   python3 scripts/debug/debug_viewer_timing.py
    ```
 
 6. **If state estimation issues**
    - Check `state_comparison.png` for divergence
-   - Run `pytest tests/test_state_estimation.py`
+   - Run `python3 -m pytest tests/test_state_estimation.py`
    - Tune estimator parameters
 
 ## Development Workflow
@@ -412,39 +412,39 @@ Outcome:
 ### Before Committing
 ```bash
 # Run unit tests
-pytest tests/
+python3 -m pytest tests/
 
 # Quick diagnostic check
-python scripts/debug/quick_check.py
+python3 scripts/debug/quick_check.py
 ```
 
 ### Before Merging PR
 ```bash
 # Full test suite
-pytest tests/ tests/regression/
+python3 -m pytest tests/ tests/regression/
 
 # Full diagnostic suite
-python scripts/debug/debug_perturbation.py
+python3 scripts/debug/debug_perturbation.py
 ```
 
 ### After Dynamics Changes
 ```bash
 # Verify model matches MuJoCo
-python scripts/validation/check_dynamics_match.py
+python3 scripts/validation/check_dynamics_match.py
 
 # Run dynamics tests
-pytest tests/test_dynamics.py tests/test_linearization.py
+python3 -m pytest tests/test_dynamics.py tests/test_linearization.py
 ```
 
 ### Tuning Controller
-1. Run `python scripts/debug/debug_perturbation.py --viewer`
+1. Run `python3 scripts/debug/debug_perturbation.py --viewer`
 2. Observe behavior visually
 3. Modify `config/mpc_params.yaml`
 4. Repeat until satisfactory
 5. Run regression tests to verify
 
 ### Investigating Failures
-1. Run `python scripts/debug/quick_check.py`
+1. Run `python3 scripts/debug/quick_check.py`
 2. Check plots in `debug_output/quick_check/`
 3. Identify failure mode from plots
 4. Run targeted script (velocity_viewer, force_disturbance, etc.)
@@ -463,12 +463,12 @@ test:
 
   unit_tests:
     script:
-      - pytest tests/ --cov=.
+      - python3 -m pytest tests/ --cov=.
     timeout: 5 minutes
 
   regression_tests:
     script:
-      - pytest tests/regression/
+      - python3 -m pytest tests/regression/
     timeout: 10 minutes
 ```
 

@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+casadi
+pytest
+pytest-cov
+pyyaml
+mujoco
