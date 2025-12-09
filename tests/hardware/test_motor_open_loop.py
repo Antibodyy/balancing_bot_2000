@@ -63,7 +63,7 @@ def test_motor_command(serial: BalboaSerialInterface,
         sensor_data = serial.read_sensors()
         if sensor_data is not None:
             encoder_samples_left.append(sensor_data.encoder_left_rad)
-            encoder_samples_right.append(sensor_data.encoder_right_rad)
+            encoder_samples_right.append(-sensor_data.encoder_right_rad)
 
         time.sleep(0.005)  # ~200 Hz
 
