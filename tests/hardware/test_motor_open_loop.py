@@ -48,7 +48,7 @@ def test_motor_command(serial: BalboaSerialInterface,
         time.sleep(0.001)
 
     initial_left = sensor_data.encoder_left_rad
-    initial_right = sensor_data.encoder_right_rad
+    initial_right = -sensor_data.encoder_right_rad
 
     # Apply command
     start_time = time.time()
