@@ -6,7 +6,7 @@ import mujoco.viewer
 import scipy.linalg
 import matplotlib.pyplot as plt
 
-phi = np.deg2rad(35.0) 
+phi = np.deg2rad(15.0) 
 data_log = {
     'time': [],
     'theta': [],
@@ -119,7 +119,7 @@ def main():
     data = mujoco.MjData(model)
     data.qpos[1] = theta_eq
     mujoco.set_mjcb_control(controller_callback)
-    mujoco.viewer.launch(model, data)
+    mujoco.viewer.launch_passive(model, data)
     time_arr = np.array(data_log['time'])
     theta_arr = np.array(data_log['theta'])
     torque_arr = np.array(data_log['torque'])
