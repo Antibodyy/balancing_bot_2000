@@ -1,0 +1,21 @@
+# Robot Physical Parameters
+# Single source of truth per style_guide.md section 4.4
+# Units specified in comments and parameter names
+
+# Masses (kg)
+body_mass_kg: 1.5        # Placeholder: to be measured
+wheel_mass_kg: 0.5       # Placeholder: to be measured
+
+# Geometry (m)
+com_distance_m: 0.2      # Placeholder: distance from axle to COM
+wheel_radius_m: 0.05     # Placeholder: wheel radius
+track_width_m: 0.3       # Placeholder: distance between wheels
+
+# Inertias (kg·m²)
+body_pitch_inertia_kg_m2: 0.02125   # I_y - matches MuJoCo box (0.1×0.1×0.4m, 1.5kg)
+body_yaw_inertia_kg_m2: 0.0025      # I_z - matches MuJoCo box
+wheel_inertia_kg_m2: 0.000625       # J_w - cylinder I=0.5*m*r² (0.5kg, 0.05m radius)
+
+# Environment
+gravity_mps2: 9.81              # Earth gravity
+ground_slope_rad: 0.0           # Measured parameter (0 = flat)
