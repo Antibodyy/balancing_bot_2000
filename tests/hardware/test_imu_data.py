@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Test IMU Data via I2C from Balboa
+"""Test 2: IMU Data Validation
 
-Verifies that IMU readings from Balboa 32U4 are reasonable when robot is stationary:
-- Accelerometer should read ~9.8 m/s² magnitude (gravity)
-- Gyroscope should read near zero (no rotation after calibration)
-
-NOTE: In this version, IMU is read FROM BALBOA (0x20), not directly from IMU chip.
-The Arduino reads the LSM6DS33 sensor and sends data to RPi via I2C.
+Verifies that IMU readings are reasonable when robot is stationary:
+- Accelerometer should read ~9.8 m/s² in Z-axis (gravity)
+- Gyroscope should read near zero (no rotation)
 
 Usage:
-    python tests/hardware/test_imu_data.py --bus 1 --duration 5
+    python tests/hardware/test_imu_data.py --port /dev/ttyACM0 --duration 5
 """
 
 import argparse
@@ -22,37 +19,31 @@ import numpy as np
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from hardware import BalboaI2CInterface
+from hardware import BalboaSerialInterface
 
 
-def test_imu_data(bus: int, duration_s: float):
-    """Test IMU data quality via I2C.
+def test_imu_data(port: str, duration_s: float):
+    """Test IMU data quality.
 
     Args:
-        bus: I2C bus number
+        port: Serial port
         duration_s: Test duration in seconds
     """
     print("=" * 60)
-    print("TEST: IMU Data Validation (I2C)")
+    print("TEST 2: IMU Data Validation")
     print("=" * 60)
-    print(f"I2C Bus:  {bus}")
+    print(f"Port:     {port}")
     print(f"Duration: {duration_s}s")
     print("\n⚠️  IMPORTANT: Keep robot STATIONARY during this test!")
     print("-" * 60)
 
-    # Connect via I2C
-    print("\nConnecting to Balboa...")
+    # Connect to Arduino
+    print("\nConnecting to Arduino...")
     try:
-        i2c = BalboaI2CInterface(bus=bus)
-        print("✓ Connected to Balboa")
-        print("  (Arduino reads IMU and sends via I2C)")
+        serial = BalboaSerialInterface(port=port)
+        print("✓ Connected")
     except Exception as e:
         print(f"✗ Failed to connect: {e}")
-        print("\nTroubleshooting:")
-        print("  - Run: sudo i2cdetect -y 1")
-        print("  - Check device at 0x20 (Balboa)")
-        print("  - Enable I2C: sudo raspi-config")
-        print("  - Ensure Arduino firmware is uploaded")
         return False
 
     # Collect IMU data
@@ -60,22 +51,14 @@ def test_imu_data(bus: int, duration_s: float):
     accel_samples = []
     gyro_samples = []
     start_time = time.time()
-    sample_count = 0
 
     try:
         while time.time() - start_time < duration_s:
-            sensor_data = i2c.read_sensors()
+            sensor_data = serial.read_sensors()
             if sensor_data is not None:
                 accel_samples.append(sensor_data.acceleration_mps2)
                 gyro_samples.append(sensor_data.angular_velocity_radps)
-                sample_count += 1
-            time.sleep(0.01)  # 100 Hz sampling
-
-        if sample_count == 0:
-            print("✗ No samples collected!")
-            return False
-
-        print(f"✓ Collected {sample_count} samples")
+            time.sleep(0.001)
 
         # Convert to numpy arrays
         accel_data = np.array(accel_samples)  # Shape: (N, 3)
@@ -108,12 +91,12 @@ def test_imu_data(bus: int, duration_s: float):
         print(f"Min:       {gyro_data[:, 0].min():6.4f}    {gyro_data[:, 1].min():6.4f}    {gyro_data[:, 2].min():6.4f}")
         print(f"Max:       {gyro_data[:, 0].max():6.4f}    {gyro_data[:, 1].max():6.4f}    {gyro_data[:, 2].max():6.4f}")
 
-        # Check gyro bias (should be near zero after calibration)
+        # Check gyro bias (should be near zero when stationary)
         gyro_magnitude = np.linalg.norm(gyro_data, axis=1)
         mean_gyro_mag = gyro_magnitude.mean()
         print(f"\nGyroscope magnitude:")
         print(f"  Mean:     {mean_gyro_mag:.4f} rad/s")
-        print(f"  Expected: ~0.0 rad/s (stationary, post-calibration)")
+        print(f"  Expected: ~0.0 rad/s (stationary)")
         print(f"  Std Dev:  {gyro_magnitude.std():.4f} rad/s")
 
         # Validation checks
@@ -138,7 +121,7 @@ def test_imu_data(bus: int, duration_s: float):
         if accel_noise_ok:
             checks_passed += 1
 
-        # Check 3: Gyro bias small (post-calibration)
+        # Check 3: Gyro bias small
         gyro_ok = mean_gyro_mag < 0.1
         print(f"{'✓' if gyro_ok else '✗'} Gyro bias: {mean_gyro_mag:.4f} rad/s "
               f"({'PASS' if gyro_ok else 'FAIL - expected <0.1'})")
@@ -158,18 +141,18 @@ def test_imu_data(bus: int, duration_s: float):
         print("\n\nTest interrupted by user")
         return False
     finally:
-        i2c.close()
+        serial.close()
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Test IMU data quality via I2C')
-    parser.add_argument('--bus', type=int, default=1,
-                       help='I2C bus number (default: 1)')
+    parser = argparse.ArgumentParser(description='Test IMU data quality')
+    parser.add_argument('--port', type=str, default='/dev/ttyACM0',
+                       help='Serial port (default: /dev/ttyACM0)')
     parser.add_argument('--duration', type=float, default=5.0,
                        help='Test duration in seconds (default: 5.0)')
     args = parser.parse_args()
 
-    success = test_imu_data(args.bus, args.duration)
+    success = test_imu_data(args.port, args.duration)
     return 0 if success else 1
 
 
