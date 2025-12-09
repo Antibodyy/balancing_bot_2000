@@ -30,7 +30,7 @@ const float GEARING_RATIO = 75.81;  // Balboa 32U4 with 75:1 motors
 const float WHEEL_COUNTS_PER_REV = ENCODER_COUNTS_PER_REV * GEARING_RATIO;
 
 // Motor configuration
-const int16_t MOTOR_MAX_SPEED = 300;
+const int16_t MOTOR_MAX_SPEED = 300;  // TODO: check this
 const int16_t MOTOR_MIN_SPEED = -300;
 
 // ============================================================================
