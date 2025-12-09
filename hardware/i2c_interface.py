@@ -291,38 +291,43 @@ class BalboaI2CInterface:
             print(f"Sensor read error: {e}")
             return None
 
-    def send_motor_command(
-        self, torque_left_nm: float, torque_right_nm: float
-    ) -> bool:
-        """Send torque commands to motors via I2C.
-
-        Args:
-            torque_left_nm: Left wheel torque (N⋅m), positive = forward
-            torque_right_nm: Right wheel torque (N⋅m), positive = forward
-
-        Returns:
-            True if command sent successfully, False otherwise
-        """
-        try:
-            # Pack motor commands as two float32 values
-            data = struct.pack('<ff', torque_left_nm, torque_right_nm)
-
-            # Write to motor command offset (byte 12-19)
-            self._bus.write_i2c_block_data(
-                self._balboa_addr,
-                self.OFFSET_TORQUE_L,
-                list(data)
-            )
-
-            return True
-
-        except IOError as e:
-            print(f"Motor command error: {e}")
-            return False
+    # DISABLED - IMU only (no motors yet)
+    # def send_motor_command(
+    #     self, torque_left_nm: float, torque_right_nm: float
+    # ) -> bool:
+    #     """Send torque commands to motors via I2C.
+    #
+    #     Args:
+    #         torque_left_nm: Left wheel torque (N⋅m), positive = forward
+    #         torque_right_nm: Right wheel torque (N⋅m), positive = forward
+    #
+    #     Returns:
+    #         True if command sent successfully, False otherwise
+    #     """
+    #     try:
+    #         # Pack motor commands as two float32 values
+    #         data = struct.pack('<ff', torque_left_nm, torque_right_nm)
+    #
+    #         # Write to motor command offset (byte 12-19)
+    #         self._bus.write_i2c_block_data(
+    #             self._balboa_addr,
+    #             self.OFFSET_TORQUE_L,
+    #             list(data)
+    #         )
+    #
+    #         return True
+    #
+    #     except IOError as e:
+    #         print(f"Motor command error: {e}")
+    #         return False
+    #
+    # def emergency_stop(self) -> bool:
+    #     """Send zero torque command to stop motors immediately."""
+    #     return self.send_motor_command(0.0, 0.0)
 
     def emergency_stop(self) -> bool:
-        """Send zero torque command to stop motors immediately."""
-        return self.send_motor_command(0.0, 0.0)
+        """Emergency stop - no-op for IMU-only version."""
+        return True
 
     def close(self):
         """Close I2C connection and stop motors."""

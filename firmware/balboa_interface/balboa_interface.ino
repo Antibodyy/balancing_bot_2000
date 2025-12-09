@@ -321,6 +321,17 @@ void printDebugInfo() {
     Serial.print(" Z=");
     Serial.println(imu.g.z);
 
+    // DEBUG: Print I2C buffer contents
+    Serial.print("I2C Buffer[0-15]: ");
+    for (int i = 0; i < 16; i++) {
+      if (i2c_buffer[i] < 0x10) Serial.print("0");
+      Serial.print(i2c_buffer[i], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+    Serial.print("I2C read_index: ");
+    Serial.println(i2c_read_index);
+
     Serial.println();
   }
 }
