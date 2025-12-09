@@ -112,7 +112,7 @@ def test_motors(port: str):
 
     try:
         # Test parameters
-        test_torque = 0.01  # Small torque for safety (Nm)
+        test_torque = 0.04  # Small torque for safety (Nm)
         test_duration = 2.0  # seconds
 
         results = {}
