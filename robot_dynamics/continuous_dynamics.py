@@ -185,7 +185,7 @@ def _build_mass_matrix_symbolic(
     mass_effective = params.effective_mass_kg
 
     # Coupling term between translation and pitch
-    mass_coupling = params.body_mass_kg * params.com_distance_m * cos_pitch
+    mass_coupling = (params.body_mass_kg +params.wheel_mass_kg)* params.com_distance_m * cos_pitch
 
     # Pitch inertia
     pitch_inertia = params.effective_pitch_inertia_kg_m2

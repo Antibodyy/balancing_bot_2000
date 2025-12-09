@@ -72,6 +72,20 @@ def parse_args():
         help='Yaw rate in rad/s (for velocity mode, default: 0.0)'
     )
 
+    # Position mode parameters
+    parser.add_argument(
+        '--target-position',
+        type=float,
+        default=None,
+        help='Target position in meters (for position mode)'
+    )
+    parser.add_argument(
+        '--target-heading',
+        type=float,
+        default=0.0,
+        help='Target heading in radians (for position mode, default: 0.0)'
+    )
+
     # Waypoint mode parameters
     parser.add_argument(
         '--waypoints',
@@ -155,6 +169,16 @@ def create_reference_command(args) -> ReferenceCommand:
             mode=ReferenceMode.VELOCITY,
             velocity_mps=args.velocity,
             yaw_rate_radps=args.yaw_rate
+        )
+    
+    elif args.mode == 'position':  
+        if args.target_position is None:
+            print("Error: --target-position required for position mode")
+            sys.exit(1)
+        return ReferenceCommand(
+            mode=ReferenceMode.POSITION,
+            target_position_m=args.target_position,
+            target_heading_rad=args.target_heading
         )
 
     elif args.mode == 'waypoint':
