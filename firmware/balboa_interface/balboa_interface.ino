@@ -55,6 +55,7 @@ const uint8_t BUFFER_SIZE = 16;
 
 // Buffer state for I2C slave
 volatile uint8_t i2c_read_index = 0;
+volatile uint16_t request_event_count = 0;  // Debug: count requestEvent calls
 
 // ============================================================================
 // HARDWARE OBJECTS
@@ -87,35 +88,20 @@ unsigned long last_button_check_ms = 0;
 
 // Called when RPi sends data (register address for read)
 void receiveEvent(int byte_count) {
-  if (byte_count == 0) return;
-
-  // Read the register/offset address
-  uint8_t offset = Wire.read();
-
-  // Validate offset
-  if (offset >= BUFFER_SIZE) {
-    offset = 0;  // Default to start if invalid
-  }
-
-  // Set read pointer for subsequent requestEvent() calls
-  i2c_read_index = offset;
-
-  // Discard any remaining bytes (shouldn't be any for read setup)
+  // For now, just consume and discard any writes
+  // We're not using register-based addressing anymore
   while (Wire.available()) {
     Wire.read();
   }
 }
 
 // Called when RPi requests data
+// Send all 16 bytes of the buffer
 void requestEvent() {
-  // Send all bytes from current index to end of buffer
-  // Wire library will automatically send them one by one
-  if (i2c_read_index < BUFFER_SIZE) {
-    Wire.write(&i2c_buffer[i2c_read_index], BUFFER_SIZE - i2c_read_index);
-  } else {
-    // Out of bounds - send zeros
-    Wire.write(0);
-  }
+  request_event_count++;  // Debug: count calls
+
+  // Send entire buffer - Wire library should handle sending multiple bytes
+  Wire.write(i2c_buffer, BUFFER_SIZE);
 }
 
 // ============================================================================
@@ -330,7 +316,9 @@ void printDebugInfo() {
     }
     Serial.println();
     Serial.print("I2C read_index: ");
-    Serial.println(i2c_read_index);
+    Serial.print(i2c_read_index);
+    Serial.print(" | requestEvent calls: ");
+    Serial.println(request_event_count);
 
     Serial.println();
   }

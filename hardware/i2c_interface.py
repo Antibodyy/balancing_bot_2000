@@ -211,10 +211,11 @@ class BalboaI2CInterface:
             - gyro_array: np.ndarray shape (3,) in rad/s (raw, before offset)
         """
         try:
-            # Read 16 bytes from Balboa starting at offset 0
-            data = self._bus.read_i2c_block_data(
-                self._balboa_addr, 0, self.BALBOA_DATA_SIZE
-            )
+            # Direct I2C read without register offset (ATmega32U4 workaround)
+            from smbus2 import i2c_msg
+            msg = i2c_msg.read(self._balboa_addr, self.BALBOA_DATA_SIZE)
+            self._bus.i2c_rdwr(msg)
+            data = list(msg)
 
             # Unpack timestamp
             timestamp_us = struct.unpack('<I', bytes(data[0:4]))[0]
