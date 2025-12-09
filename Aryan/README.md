@@ -48,25 +48,44 @@ PYTHONPATH=. python3 scripts/viewer/view_robot.py
 
 ```
 balancing_bot_2000/
+├── README.md
+├── requirements.txt
+├── MUJOCO_LOG.TXT
+├── mads.py
+├── run_robot.py
+├── run_simulation.py
 ├── config/                 # Configuration files (YAML)
+│   ├── hardware/
+│   └── simulation/
 ├── control_pipeline/       # MPC controller implementation
 ├── debug/                  # Diagnostic tools and plotting
+├── debug_output/           # Raw debug output and logged data
 ├── docs/                   # Documentation
-│   ├── TESTING_GUIDE.md    # Comprehensive testing guide
-│   ├── dynamics.md         # Mathematical model
-│   ├── style_guide.md      # Code style conventions
-│   ├── requirements.md     # Dependencies
-│   └── llm.md              # LLM interaction guidelines
+│   ├── TESTING_GUIDE.md
+│   ├── dynamics.md
+│   ├── llm.md
+│   ├── requirements.md
+│   └── style_guide.md
+├── firmware/               # Firmware and microcontroller code
+│   └── balboa_interface/
+├── hardware/               # Hardware interface modules and drivers
+│   ├── __init__.py
+│   ├── config_loader.py
+│   ├── hardware_controller.py
+│   ├── i2c_interface.py
+│   └── serial_interface.py
 ├── mpc/                    # MPC solver and components
-├── robot_dynamics/         # Dynamics equations
+├── robot_dynamics/         # Dynamics equations and linearization
 ├── scripts/                # Utility scripts
-│   ├── debug/              # Debug and diagnostic scripts
-│   ├── validation/         # Model validation scripts
-│   └── viewer/             # Visualization utilities
-├── simulation/             # MuJoCo simulation
-└── tests/                  # Test suite
-    ├── regression/         # Regression tests
-    └── test_*.py           # Unit tests
+│   ├── debug/
+│   ├── validation/
+│   └── viewer/
+├── simulation/             # MuJoCo simulation and helpers
+├── state_estimation/       # IMU fusion and filters
+├── tests/                  # Test suite
+│   ├── regression/
+│   └── test_*.py
+└── viewer/                 # Lightweight viewer utilities
 ```
 
 ## Testing

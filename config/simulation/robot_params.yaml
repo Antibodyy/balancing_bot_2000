@@ -3,18 +3,18 @@
 # Units specified in comments and parameter names
 
 # Masses (kg)
-body_mass_kg: 1.5        # Placeholder: to be measured
-wheel_mass_kg: 0.5       # Placeholder: to be measured
+body_mass_kg: 0.43        
+wheel_mass_kg: 0.02
 
 # Geometry (m)
-com_distance_m: 0.2      # Placeholder: distance from axle to COM
-wheel_radius_m: 0.05     # Placeholder: wheel radius
-track_width_m: 0.3       # Placeholder: distance between wheels
+com_distance_m: 0.0275      # distance from axle to COM
+wheel_radius_m: 0.04     # wheel radius
+track_width_m: 0.1       # distance between wheels
 
-# Inertias (kg·m²)
-body_pitch_inertia_kg_m2: 0.02125   # I_y - matches MuJoCo box (0.1×0.1×0.4m, 1.5kg)
-body_yaw_inertia_kg_m2: 0.0025      # I_z - matches MuJoCo box
-wheel_inertia_kg_m2: 0.000625       # J_w - cylinder I=0.5*m*r² (0.5kg, 0.05m radius)
+# Inertias (kg·m²) --> some unknown, upload the bot CAD into mujoco to find it
+body_pitch_inertia_kg_m2: 0.0212   # I_y -- still gotta find it matching MuJoCo
+body_yaw_inertia_kg_m2: 0.0025      # I_z -- still gotta find it matching MuJoCo
+wheel_inertia_kg_m2: 0.000344       # J_w - cylinder I=0.5*m*r² (0.43kg, 0.04m radius)
 
 # Environment
 gravity_mps2: 9.81              # Earth gravity
