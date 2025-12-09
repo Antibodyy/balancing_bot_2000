@@ -106,14 +106,14 @@ void receiveEvent(int byte_count) {
   }
 }
 
-// Called when RPi requests data - CALLED ONCE PER BYTE
+// Called when RPi requests data
 void requestEvent() {
-  // Send current byte
+  // Send all bytes from current index to end of buffer
+  // Wire library will automatically send them one by one
   if (i2c_read_index < BUFFER_SIZE) {
-    Wire.write(i2c_buffer[i2c_read_index]);
-    i2c_read_index++;
+    Wire.write(&i2c_buffer[i2c_read_index], BUFFER_SIZE - i2c_read_index);
   } else {
-    // Out of bounds - send zero
+    // Out of bounds - send zeros
     Wire.write(0);
   }
 }
