@@ -133,7 +133,7 @@ def test_motors(port: str):
         # Test 2: Right wheel forward
         print("\n[2/4] Right wheel forward")
         delta_l, delta_r = test_motor_command(
-            serial, 0.0, test_torque, test_duration,
+            serial, 0.0, -test_torque, test_duration,
             "Test 2: Right wheel forward"
         )
         results['right_forward'] = (delta_l, delta_r)
