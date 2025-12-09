@@ -56,6 +56,9 @@ const uint8_t BUFFER_SIZE = 16;
 // Buffer state for I2C slave
 volatile uint8_t i2c_read_index = 0;
 volatile uint16_t request_event_count = 0;  // Debug: count requestEvent calls
+volatile uint16_t receive_event_count = 0;  // Debug: count receiveEvent calls
+volatile bool buffer_ready = true;          // Flag: buffer ready for I2C read
+volatile uint8_t last_wire_available = 0;   // Debug: bytes in Wire RX buffer
 
 // ============================================================================
 // HARDWARE OBJECTS
@@ -88,6 +91,9 @@ unsigned long last_button_check_ms = 0;
 
 // Called when RPi sends data (register address for read)
 void receiveEvent(int byte_count) {
+  receive_event_count++;
+  last_wire_available = byte_count;
+
   // For now, just consume and discard any writes
   // We're not using register-based addressing anymore
   while (Wire.available()) {
@@ -100,8 +106,14 @@ void receiveEvent(int byte_count) {
 void requestEvent() {
   request_event_count++;  // Debug: count calls
 
-  // Send entire buffer - Wire library should handle sending multiple bytes
-  Wire.write(i2c_buffer, BUFFER_SIZE);
+  // Only send if buffer is ready (not being updated)
+  if (buffer_ready) {
+    Wire.write(i2c_buffer, BUFFER_SIZE);
+  } else {
+    // Buffer is being updated, send zeros to avoid partial data
+    uint8_t zeros[BUFFER_SIZE] = {0};
+    Wire.write(zeros, BUFFER_SIZE);
+  }
 }
 
 // ============================================================================
@@ -250,14 +262,14 @@ void updateI2CBuffer() {
   /**
    * Update I2C buffer with latest IMU data for Raspberry Pi to read
    *
-   * CRITICAL: Use noInterrupts() to prevent race condition where RPi
-   * reads buffer while we're updating it mid-write.
+   * Strategy: Set buffer_ready flag to prevent I2C reads during update.
+   * This avoids blocking I2C interrupts which was causing hangs.
    */
 
   uint32_t timestamp_us = micros();
 
-  // Disable interrupts during buffer update to ensure atomic write
-  noInterrupts();
+  // Signal that buffer is being updated
+  buffer_ready = false;
 
   // Copy timestamp (4 bytes)
   memcpy(&i2c_buffer[OFFSET_TIMESTAMP], &timestamp_us, sizeof(uint32_t));
@@ -272,8 +284,8 @@ void updateI2CBuffer() {
   memcpy(&i2c_buffer[OFFSET_GYRO_Y], &imu.g.y, sizeof(int16_t));
   memcpy(&i2c_buffer[OFFSET_GYRO_Z], &imu.g.z, sizeof(int16_t));
 
-  // Re-enable interrupts
-  interrupts();
+  // Buffer update complete
+  buffer_ready = true;
 }
 
 // ============================================================================
@@ -315,10 +327,16 @@ void printDebugInfo() {
       Serial.print(" ");
     }
     Serial.println();
-    Serial.print("I2C read_index: ");
-    Serial.print(i2c_read_index);
-    Serial.print(" | requestEvent calls: ");
-    Serial.println(request_event_count);
+
+    // I2C diagnostics
+    Serial.print("I2C Stats: req=");
+    Serial.print(request_event_count);
+    Serial.print(" recv=");
+    Serial.print(receive_event_count);
+    Serial.print(" rx_bytes=");
+    Serial.print(last_wire_available);
+    Serial.print(" ready=");
+    Serial.println(buffer_ready ? "Y" : "N");
 
     Serial.println();
   }
