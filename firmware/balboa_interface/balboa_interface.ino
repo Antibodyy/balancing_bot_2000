@@ -362,10 +362,8 @@ void receiveControlPacket() {
   // Update last packet time for watchdog
   last_packet_time_ms = millis();
 
-  // Blink LED to indicate valid command received
-  ledYellow(1);
-  delay(1);
-  ledYellow(0);
+  // Note: LED blink removed to avoid blocking delay during motor control
+  // The 1ms delay was causing encoder counts to be missed during high-frequency commands
 }
 
 // ============================================================================

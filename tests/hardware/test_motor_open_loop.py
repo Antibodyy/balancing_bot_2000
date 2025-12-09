@@ -78,8 +78,16 @@ def test_motor_command(serial: BalboaSerialInterface,
     delta_left = final_left - initial_left
     delta_right = final_right - initial_right
 
+    print(f"  Samples collected: {len(encoder_samples_left)}")
+    print(f"  Initial: L={initial_left:.4f}, R={initial_right:.4f}")
+    print(f"  Final:   L={final_left:.4f}, R={final_right:.4f}")
     print(f"  Left wheel:  {delta_left:+.4f} rad ({delta_left/(2*np.pi):+.3f} rev)")
     print(f"  Right wheel: {delta_right:+.4f} rad ({delta_right/(2*np.pi):+.3f} rev)")
+
+    # Show encoder value progression for debugging
+    if len(encoder_samples_left) > 0:
+        print(f"  Left encoder range: [{min(encoder_samples_left):.4f}, {max(encoder_samples_left):.4f}]")
+        print(f"  Right encoder range: [{min(encoder_samples_right):.4f}, {max(encoder_samples_right):.4f}]")
 
     return delta_left, delta_right
 
