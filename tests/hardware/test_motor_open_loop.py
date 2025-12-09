@@ -89,6 +89,19 @@ def test_motor_command(serial: BalboaSerialInterface,
         print(f"  Left encoder range: [{min(encoder_samples_left):.4f}, {max(encoder_samples_left):.4f}]")
         print(f"  Right encoder range: [{min(encoder_samples_right):.4f}, {max(encoder_samples_right):.4f}]")
 
+        # Check if encoder values are actually changing
+        left_unique = len(set([round(x, 4) for x in encoder_samples_left]))
+        right_unique = len(set([round(x, 4) for x in encoder_samples_right]))
+        print(f"  Unique left values: {left_unique}/{len(encoder_samples_left)} " +
+              f"({'CHANGING' if left_unique > 5 else 'STATIC!'})")
+        print(f"  Unique right values: {right_unique}/{len(encoder_samples_right)} " +
+              f"({'CHANGING' if right_unique > 5 else 'STATIC!'})")
+
+        # Show first and last few samples to see progression
+        if len(encoder_samples_left) >= 10:
+            print(f"  First 5 left samples: {[f'{x:.4f}' for x in encoder_samples_left[:5]]}")
+            print(f"  Last 5 left samples:  {[f'{x:.4f}' for x in encoder_samples_left[-5:]]}")
+
     return delta_left, delta_right
 
 

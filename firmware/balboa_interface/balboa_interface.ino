@@ -63,9 +63,11 @@ float gyro_x_radps = 0.0;
 float gyro_y_radps = 0.0;
 float gyro_z_radps = 0.0;
 
-// Encoder data (in radians)
+// Encoder data (in radians, accumulated from deltas to avoid int16 overflow)
 float encoder_left_rad = 0.0;
 float encoder_right_rad = 0.0;
+int16_t encoder_left_counts_prev = 0;
+int16_t encoder_right_counts_prev = 0;
 
 // Motor commands
 float torque_left_nm = 0.0;
@@ -111,6 +113,10 @@ void setup() {
   // Initialize encoders
   encoders.getCountsAndResetLeft();
   encoders.getCountsAndResetRight();
+
+  // Initialize encoder tracking (should be 0 after reset)
+  encoder_left_counts_prev = encoders.getCountsLeft();
+  encoder_right_counts_prev = encoders.getCountsRight();
 
   // Initialize motors (stopped)
   motors.setSpeeds(0, 0);
@@ -195,14 +201,22 @@ void readIMU() {
 // ============================================================================
 
 void readEncoders() {
-  // Read encoder counts
+  // Read encoder counts (these are cumulative and will overflow int16_t)
   int16_t counts_left = encoders.getCountsLeft();
   int16_t counts_right = encoders.getCountsRight();
 
-  // Convert to radians
+  // Compute delta since last read (handles overflow correctly)
+  int16_t delta_left = counts_left - encoder_left_counts_prev;
+  int16_t delta_right = counts_right - encoder_right_counts_prev;
+
+  // Update previous counts
+  encoder_left_counts_prev = counts_left;
+  encoder_right_counts_prev = counts_right;
+
+  // Accumulate deltas in radians (float has much larger range than int16)
   // One wheel revolution = 2π radians = WHEEL_COUNTS_PER_REV counts
-  encoder_left_rad = (counts_left / WHEEL_COUNTS_PER_REV) * TWO_PI;
-  encoder_right_rad = (counts_right / WHEEL_COUNTS_PER_REV) * TWO_PI;
+  encoder_left_rad += ((float)delta_left / WHEEL_COUNTS_PER_REV) * TWO_PI;
+  encoder_right_rad += ((float)delta_right / WHEEL_COUNTS_PER_REV) * TWO_PI;
 }
 
 // ============================================================================
