@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Test IMU Data via I2C
+"""Test IMU Data via I2C from Balboa
 
-Verifies that IMU readings are reasonable when robot is stationary:
+Verifies that IMU readings from Balboa 32U4 are reasonable when robot is stationary:
 - Accelerometer should read ~9.8 m/s² magnitude (gravity)
 - Gyroscope should read near zero (no rotation after calibration)
+
+NOTE: In this version, IMU is read FROM BALBOA (0x20), not directly from IMU chip.
+The Arduino reads the LSM6DS33 sensor and sends data to RPi via I2C.
 
 Usage:
     python tests/hardware/test_imu_data.py --bus 1 --duration 5
@@ -38,17 +41,18 @@ def test_imu_data(bus: int, duration_s: float):
     print("-" * 60)
 
     # Connect via I2C
-    print("\nConnecting to I2C devices...")
+    print("\nConnecting to Balboa...")
     try:
         i2c = BalboaI2CInterface(bus=bus)
-        print("✓ Connected")
-        print("  (IMU initialized and gyro calibrated)")
+        print("✓ Connected to Balboa")
+        print("  (Arduino reads IMU and sends via I2C)")
     except Exception as e:
         print(f"✗ Failed to connect: {e}")
         print("\nTroubleshooting:")
         print("  - Run: sudo i2cdetect -y 1")
-        print("  - Check devices at 0x20, 0x6b")
+        print("  - Check device at 0x20 (Balboa)")
         print("  - Enable I2C: sudo raspi-config")
+        print("  - Ensure Arduino firmware is uploaded")
         return False
 
     # Collect IMU data

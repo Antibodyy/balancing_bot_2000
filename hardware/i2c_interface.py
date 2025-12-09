@@ -39,29 +39,33 @@ LSM6_OUTX_L_XL = 0x28   # Accel data start
 
 
 class BalboaI2CInterface:
-    """I2C communication interface for Balboa robot with separate IMU reading.
+    """I2C communication interface for Balboa robot - IMU only version.
 
     Handles I2C-based communication with:
-    - Balboa 32U4 (0x20): Provides encoder data, receives motor commands
-    - IMU sensors (0x1e, 0x6b): Accelerometer and gyroscope
+    - Balboa 32U4 (0x20): Arduino reads LSM6DS33 IMU and sends data via I2C
+
+    NOTE: This is a simplified IMU-only implementation. Encoders and motors
+    will be added back in a future update.
 
     Example:
         >>> i2c = BalboaI2CInterface(bus=1)
-        >>> sensor_data = i2c.read_sensors()
-        >>> i2c.send_motor_command(0.1, 0.1)
+        >>> sensor_data = i2c.read_sensors()  # IMU data from Balboa
         >>> i2c.close()
     """
 
-    # Balboa data structure offsets
-    BALBOA_DATA_SIZE = 12       # timestamp(4) + 2×encoder(8)
+    # Balboa data structure offsets - IMU ONLY
+    BALBOA_DATA_SIZE = 16       # timestamp(4) + accel(6) + gyro(6)
     OFFSET_TIMESTAMP = 0        # uint32 (4 bytes)
-    OFFSET_ENCODER_L = 4        # float32 (4 bytes)
-    OFFSET_ENCODER_R = 8        # float32 (4 bytes)
+    OFFSET_ACCEL_X = 4          # int16 (2 bytes)
+    OFFSET_ACCEL_Y = 6          # int16 (2 bytes)
+    OFFSET_ACCEL_Z = 8          # int16 (2 bytes)
+    OFFSET_GYRO_X = 10          # int16 (2 bytes)
+    OFFSET_GYRO_Y = 12          # int16 (2 bytes)
+    OFFSET_GYRO_Z = 14          # int16 (2 bytes)
 
-    # Motor command offsets
-    MOTOR_DATA_SIZE = 8
-    OFFSET_TORQUE_L = 12        # float32 (4 bytes) - after sensor data
-    OFFSET_TORQUE_R = 16        # float32 (4 bytes)
+    # LSM6DS33 scaling factors (±4g accel, ±500dps gyro)
+    ACCEL_SCALE = 0.122e-3 * 9.81           # mg/LSB to m/s²
+    GYRO_SCALE = 17.50e-3 * (np.pi / 180.0)  # mdps/LSB to rad/s
 
     def __init__(self, bus: int = DEFAULT_I2C_BUS, address: int = BALBOA_ADDRESS):
         """Initialize I2C connection.
@@ -83,47 +87,46 @@ class BalboaI2CInterface:
         self._balboa_addr = address
         self._bus = SMBus(bus)
 
-        # Initialize IMU
-        self._init_imu()
-
         # Gyro calibration offsets
         self._gyro_offset = np.zeros(3)
-        self._calibrate_gyro()
 
         time.sleep(0.1)
 
         print(f"Balboa I2C Interface initialized")
         print(f"  Bus: {bus}")
-        print(f"  Balboa: 0x{address:02X}")
-        print(f"  Accel:  0x{ACCEL_ADDRESS:02X}")
-        print(f"  Gyro:   0x{GYRO_ADDRESS:02X}")
+        print(f"  Balboa (IMU): 0x{address:02X}")
+        print(f"  Note: IMU read by Arduino, sent to RPi via I2C")
 
-    def _init_imu(self):
-        """Initialize IMU sensors via I2C."""
-        try:
-            # Soft reset the IMU to ensure clean state
-            self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b00000001)  # SW_RESET bit
-            time.sleep(0.05)  # Wait for reset to complete
+        # Calibrate gyroscope
+        self._calibrate_gyro()
 
-            # Configure accelerometer: ODR=208Hz, FS=±4g
-            self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL1_XL, 0b01011000)
-            time.sleep(0.01)
-
-            # Configure gyroscope: ODR=208Hz, FS=±500dps
-            self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL2_G, 0b01010100)
-            time.sleep(0.01)
-
-            # Enable block data update and auto-increment
-            self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b01000100)
-
-            # Wait for IMU to stabilize and start producing data (at least one sample period)
-            # At 208Hz ODR, one sample takes ~5ms, wait 100ms to be safe
-            time.sleep(0.1)
-
-            print("IMU initialized successfully")
-        except IOError as e:
-            print(f"Warning: IMU initialization failed: {e}")
-            print("Continuing without IMU...")
+    # DISABLED - IMU now initialized by Arduino
+    # def _init_imu(self):
+    #     """Initialize IMU sensors via I2C."""
+    #     try:
+    #         # Soft reset the IMU to ensure clean state
+    #         self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b00000001)  # SW_RESET bit
+    #         time.sleep(0.05)  # Wait for reset to complete
+    #
+    #         # Configure accelerometer: ODR=208Hz, FS=±4g
+    #         self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL1_XL, 0b01011000)
+    #         time.sleep(0.01)
+    #
+    #         # Configure gyroscope: ODR=208Hz, FS=±500dps
+    #         self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL2_G, 0b01010100)
+    #         time.sleep(0.01)
+    #
+    #         # Enable block data update and auto-increment
+    #         self._bus.write_byte_data(GYRO_ADDRESS, LSM6_CTRL3_C, 0b01000100)
+    #
+    #         # Wait for IMU to stabilize and start producing data (at least one sample period)
+    #         # At 208Hz ODR, one sample takes ~5ms, wait 100ms to be safe
+    #         time.sleep(0.1)
+    #
+    #         print("IMU initialized successfully")
+    #     except IOError as e:
+    #         print(f"Warning: IMU initialization failed: {e}")
+    #         print("Continuing without IMU...")
 
     def _calibrate_gyro(self, num_samples: int = 100):
         """Calibrate gyroscope zero offsets.
@@ -136,9 +139,10 @@ class BalboaI2CInterface:
 
         for _ in range(num_samples):
             try:
-                gyro_data = self._read_gyro_raw()
-                if gyro_data is not None:
-                    samples.append(gyro_data)
+                imu_data = self._read_imu_from_balboa()
+                if imu_data is not None:
+                    _, _, gyro = imu_data
+                    samples.append(gyro)
                 time.sleep(0.01)
             except IOError:
                 continue
@@ -150,54 +154,89 @@ class BalboaI2CInterface:
             print("Warning: Gyro calibration failed, using zero offsets")
             self._gyro_offset = np.zeros(3)
 
-    def _read_accel_raw(self) -> Optional[np.ndarray]:
-        """Read raw accelerometer data from IMU.
+    # DISABLED - IMU now read from Balboa via I2C
+    # def _read_accel_raw(self) -> Optional[np.ndarray]:
+    #     """Read raw accelerometer data from IMU.
+    #
+    #     Returns:
+    #         3D numpy array [ax, ay, az] in m/s², or None on error
+    #     """
+    #     try:
+    #         # Read 6 bytes starting at OUTX_L_XL
+    #         data = self._bus.read_i2c_block_data(GYRO_ADDRESS, LSM6_OUTX_L_XL | 0x80, 6)
+    #
+    #         # Convert to signed 16-bit values
+    #         ax = np.int16((data[1] << 8) | data[0])
+    #         ay = np.int16((data[3] << 8) | data[2])
+    #         az = np.int16((data[5] << 8) | data[4])
+    #
+    #         # Convert to m/s² (±4g mode: 1 LSB = 0.122 mg)
+    #         accel_scale = 0.122e-3 * 9.81
+    #         return np.array([ax, ay, az]) * accel_scale
+    #
+    #     except IOError as e:
+    #         print(f"Accel read error: {e}")
+    #         return None
+    #
+    # def _read_gyro_raw(self) -> Optional[np.ndarray]:
+    #     """Read raw gyroscope data from IMU.
+    #
+    #     Returns:
+    #         3D numpy array [gx, gy, gz] in rad/s (before offset subtraction), or None on error
+    #     """
+    #     try:
+    #         # Read 6 bytes starting at OUTX_L_G
+    #         data = self._bus.read_i2c_block_data(GYRO_ADDRESS, LSM6_OUTX_L_G | 0x80, 6)
+    #
+    #         # Convert to signed 16-bit values
+    #         gx = np.int16((data[1] << 8) | data[0])
+    #         gy = np.int16((data[3] << 8) | data[2])
+    #         gz = np.int16((data[5] << 8) | data[4])
+    #
+    #         # Convert to rad/s (±500 dps mode: 1 LSB = 17.50 mdps)
+    #         gyro_scale = 17.50e-3 * (np.pi / 180.0)
+    #         return np.array([gx, gy, gz]) * gyro_scale
+    #
+    #     except IOError as e:
+    #         print(f"Gyro read error: {e}")
+    #         return None
+
+    def _read_imu_from_balboa(self) -> Optional[tuple]:
+        """Read IMU data from Balboa via I2C.
 
         Returns:
-            3D numpy array [ax, ay, az] in m/s², or None on error
+            Tuple of (timestamp_us, accel_array, gyro_array), or None on error
+            - timestamp_us: uint32 microseconds
+            - accel_array: np.ndarray shape (3,) in m/s²
+            - gyro_array: np.ndarray shape (3,) in rad/s (raw, before offset)
         """
         try:
-            # Read 6 bytes starting at OUTX_L_XL
-            data = self._bus.read_i2c_block_data(GYRO_ADDRESS, LSM6_OUTX_L_XL | 0x80, 6)
+            # Read 16 bytes from Balboa starting at offset 0
+            data = self._bus.read_i2c_block_data(
+                self._balboa_addr, 0, self.BALBOA_DATA_SIZE
+            )
 
-            # Convert to signed 16-bit values
-            ax = np.int16((data[1] << 8) | data[0])
-            ay = np.int16((data[3] << 8) | data[2])
-            az = np.int16((data[5] << 8) | data[4])
+            # Unpack timestamp
+            timestamp_us = struct.unpack('<I', bytes(data[0:4]))[0]
 
-            # Convert to m/s² (±4g mode: 1 LSB = 0.122 mg)
-            accel_scale = 0.122e-3 * 9.81
-            return np.array([ax, ay, az]) * accel_scale
+            # Unpack accelerometer (3x int16)
+            accel_raw = struct.unpack('<hhh', bytes(data[4:10]))
+            accel = np.array(accel_raw, dtype=float) * self.ACCEL_SCALE
 
-        except IOError as e:
-            print(f"Accel read error: {e}")
-            return None
+            # Unpack gyroscope (3x int16)
+            gyro_raw = struct.unpack('<hhh', bytes(data[10:16]))
+            gyro = np.array(gyro_raw, dtype=float) * self.GYRO_SCALE
 
-    def _read_gyro_raw(self) -> Optional[np.ndarray]:
-        """Read raw gyroscope data from IMU.
-
-        Returns:
-            3D numpy array [gx, gy, gz] in rad/s (before offset subtraction), or None on error
-        """
-        try:
-            # Read 6 bytes starting at OUTX_L_G
-            data = self._bus.read_i2c_block_data(GYRO_ADDRESS, LSM6_OUTX_L_G | 0x80, 6)
-
-            # Convert to signed 16-bit values
-            gx = np.int16((data[1] << 8) | data[0])
-            gy = np.int16((data[3] << 8) | data[2])
-            gz = np.int16((data[5] << 8) | data[4])
-
-            # Convert to rad/s (±500 dps mode: 1 LSB = 17.50 mdps)
-            gyro_scale = 17.50e-3 * (np.pi / 180.0)
-            return np.array([gx, gy, gz]) * gyro_scale
+            return timestamp_us, accel, gyro
 
         except IOError as e:
-            print(f"Gyro read error: {e}")
+            print(f"Balboa IMU read error: {e}")
             return None
 
     def _read_encoders(self) -> Optional[tuple]:
         """Read encoder data from Balboa using standard I2C block read.
+
+        NOTE: DISABLED - IMU only implementation. Kept for future use.
 
         Returns:
             Tuple of (timestamp_us, encoder_left_rad, encoder_right_rad), or None on error
@@ -217,37 +256,34 @@ class BalboaI2CInterface:
             return None
 
     def read_sensors(self) -> Optional[SensorData]:
-        """Read all sensor data (IMU + encoders).
+        """Read IMU sensor data from Balboa.
+
+        NOTE: Encoders not yet implemented in this IMU-only version.
 
         Returns:
             SensorData object compatible with BalanceController, or None if error
         """
         try:
-            # Read accelerometer
-            accel = self._read_accel_raw()
-            if accel is None:
+            # Read IMU data from Balboa
+            imu_data = self._read_imu_from_balboa()
+            if imu_data is None:
                 return None
 
-            # Read gyroscope
-            gyro_raw = self._read_gyro_raw()
-            if gyro_raw is None:
-                return None
+            timestamp_us, accel, gyro_raw = imu_data
+
+            # Apply gyro calibration offset
             gyro = gyro_raw - self._gyro_offset
 
-            # Read encoders from Balboa
-            encoder_data = self._read_encoders()
-            if encoder_data is None:
-                return None
-
-            timestamp_us, encoder_left_rad, encoder_right_rad = encoder_data
+            # Convert timestamp to seconds
             timestamp_s = timestamp_us / 1e6
 
             # Pack into SensorData format
+            # TODO: Add encoder support later - using zeros for now
             return SensorData(
                 acceleration_mps2=accel,
                 angular_velocity_radps=gyro,
-                encoder_left_rad=encoder_left_rad,
-                encoder_right_rad=encoder_right_rad,
+                encoder_left_rad=0.0,   # Placeholder
+                encoder_right_rad=0.0,  # Placeholder
                 timestamp_s=timestamp_s
             )
 
