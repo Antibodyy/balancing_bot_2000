@@ -1,8 +1,11 @@
 /**
- * Balboa 32U4 Interface for MPC Balancing Robot - I2C Slave with Wire Library
+ * Balboa 32U4 Interface for MPC Balancing Robot
  *
- * Uses standard Arduino Wire library for I2C slave communication.
- * This replaces PololuRPiSlave which has compatibility issues.
+ * This firmware provides low-level hardware interface for the Raspberry Pi:
+ * - Motor control via torque commands
+ * - IMU data acquisition (LSM6DS33)
+ * - Encoder position tracking
+ * - Binary serial communication
  *
  * Author: MPC Balancing Robot Project
  * Hardware: Pololu Balboa 32U4
@@ -16,124 +19,80 @@
 // CONFIGURATION
 // ============================================================================
 
-// I2C Slave Address
-const uint8_t I2C_SLAVE_ADDRESS = 0x20;
+// Serial communication
+const unsigned long BAUD_RATE = 115200;
+const byte CONTROL_PACKET_HEADER = 0xAA;
+const byte SENSOR_PACKET_HEADER = 0xBB;
 
 // IMU configuration
-const uint8_t IMU_UPDATE_RATE_HZ = 200;
-const unsigned long IMU_UPDATE_PERIOD_US = 1000000 / IMU_UPDATE_RATE_HZ;
+const int IMU_SAMPLE_RATE_HZ = 200;
+const unsigned long IMU_SAMPLE_PERIOD_US = 1000000UL / IMU_SAMPLE_RATE_HZ;
 
-// Encoder configuration (TEMPORARILY DISABLED - IMU ONLY)
-// const float ENCODER_COUNTS_PER_REV = 12.0;
-// const float GEARING_RATIO = 50.0;
-// const float WHEEL_COUNTS_PER_REV = ENCODER_COUNTS_PER_REV * GEARING_RATIO;
+// Encoder configuration
+const float ENCODER_COUNTS_PER_REV = 12.0;  // Motor shaft CPR
+const float GEARING_RATIO = 50.0;            // 50:1 gearbox
+const float WHEEL_COUNTS_PER_REV = ENCODER_COUNTS_PER_REV * GEARING_RATIO;  // 600
 
-// Motor configuration (TEMPORARILY DISABLED - IMU ONLY)
-// const float MOTOR_MAX_TORQUE_NM = 0.25;
-// const int16_t MOTOR_MAX_SPEED = 300;
-// const float TORQUE_TO_SPEED_GAIN = (float)MOTOR_MAX_SPEED / MOTOR_MAX_TORQUE_NM;
+// Motor configuration
+const float MOTOR_MAX_TORQUE_NM = 0.25;     // Maximum motor torque (N⋅m)
+const int16_t MOTOR_MAX_SPEED = 300;        // Maximum motor PWM speed
 
-// ============================================================================
-// I2C DATA BUFFER - IMU ONLY
-// ============================================================================
-
-// Buffer layout: 16 bytes total
-// - timestamp: uint32 (4 bytes)
-// - accel: 3x int16 (6 bytes)
-// - gyro: 3x int16 (6 bytes)
-uint8_t i2c_buffer[16];
-
-// Buffer offsets
-const uint8_t OFFSET_TIMESTAMP = 0;   // uint32 (4 bytes)
-const uint8_t OFFSET_ACCEL_X = 4;     // int16 (2 bytes)
-const uint8_t OFFSET_ACCEL_Y = 6;     // int16 (2 bytes)
-const uint8_t OFFSET_ACCEL_Z = 8;     // int16 (2 bytes)
-const uint8_t OFFSET_GYRO_X = 10;     // int16 (2 bytes)
-const uint8_t OFFSET_GYRO_Y = 12;     // int16 (2 bytes)
-const uint8_t OFFSET_GYRO_Z = 14;     // int16 (2 bytes)
-const uint8_t BUFFER_SIZE = 16;
-
-// Buffer state for I2C slave
-volatile uint8_t i2c_read_index = 0;
-volatile uint16_t request_event_count = 0;  // Debug: count requestEvent calls
-volatile uint16_t receive_event_count = 0;  // Debug: count receiveEvent calls
-volatile bool buffer_ready = true;          // Flag: buffer ready for I2C read
-volatile uint8_t last_wire_available = 0;   // Debug: bytes in Wire RX buffer
+// Calibration - torque to motor speed mapping (estimated)
+// These values should be characterized during system identification
+// For now, using linear approximation: speed = K_torque * torque_nm
+const float TORQUE_TO_SPEED_GAIN = (float)MOTOR_MAX_SPEED / MOTOR_MAX_TORQUE_NM;  // ~1200
 
 // ============================================================================
 // HARDWARE OBJECTS
 // ============================================================================
 
-LSM6 imu;
-// Balboa32U4Motors motors;          // DISABLED - IMU only
-// Balboa32U4Encoders encoders;       // DISABLED - IMU only
+Balboa32U4Motors motors;
+Balboa32U4Encoders encoders;
 Balboa32U4ButtonA buttonA;
+LSM6 imu;
 
 // ============================================================================
 // GLOBAL STATE
 // ============================================================================
 
-// Encoder data (DISABLED - IMU only)
-// float encoder_left_rad = 0.0;
-// float encoder_right_rad = 0.0;
+// IMU data (converted to SI units)
+float accel_x_mps2 = 0.0;
+float accel_y_mps2 = 0.0;
+float accel_z_mps2 = 0.0;
+float gyro_x_radps = 0.0;
+float gyro_y_radps = 0.0;
+float gyro_z_radps = 0.0;
 
-// Motor commands (DISABLED - IMU only)
-// float torque_left_nm = 0.0;
-// float torque_right_nm = 0.0;
+// Encoder data (in radians)
+float encoder_left_rad = 0.0;
+float encoder_right_rad = 0.0;
+
+// Motor commands
+float torque_left_nm = 0.0;
+float torque_right_nm = 0.0;
+
+// Timing
+unsigned long last_imu_time_us = 0;
+unsigned long last_packet_time_ms = 0;
 
 // Debug mode
 bool debug_mode = false;
 unsigned long last_button_check_ms = 0;
 
 // ============================================================================
-// I2C INTERRUPT HANDLERS
-// ============================================================================
-
-// Called when RPi sends data (register address for read)
-void receiveEvent(int byte_count) {
-  receive_event_count++;
-  last_wire_available = byte_count;
-
-  // For now, just consume and discard any writes
-  // We're not using register-based addressing anymore
-  while (Wire.available()) {
-    Wire.read();
-  }
-}
-
-// Called when RPi requests data
-// Send all 16 bytes of the buffer
-void requestEvent() {
-  request_event_count++;  // Debug: count calls
-
-  // Only send if buffer is ready (not being updated)
-  if (buffer_ready) {
-    Wire.write(i2c_buffer, BUFFER_SIZE);
-  } else {
-    // Buffer is being updated, send zeros to avoid partial data
-    uint8_t zeros[BUFFER_SIZE] = {0};
-    Wire.write(zeros, BUFFER_SIZE);
-  }
-}
-
-// ============================================================================
 // SETUP
 // ============================================================================
 
 void setup() {
-  // Initialize USB Serial for debugging
-  Serial.begin(115200);
+  // Initialize serial communication
+  Serial.begin(BAUD_RATE);
 
-  // Initialize I2C slave
-  Wire.begin(I2C_SLAVE_ADDRESS);
-  Wire.onReceive(receiveEvent);
-  Wire.onRequest(requestEvent);
+  // Initialize I2C
+  Wire.begin();
 
   // Initialize IMU
-  Serial.println("Initializing IMU...");
   if (!imu.init()) {
-    Serial.println("ERROR: Failed to detect LSM6DS33!");
-    // Flash red LED to indicate error
+    // IMU initialization failed - blink LED rapidly
     while (1) {
       ledRed(1);
       delay(100);
@@ -142,42 +101,27 @@ void setup() {
     }
   }
 
-  // Configure IMU for optimal performance
-  // Accel: 208 Hz ODR, ±4g full scale
-  imu.writeReg(LSM6::CTRL1_XL, 0b01011000);  // 0x58
-  // Gyro: 208 Hz ODR, ±500 dps full scale
-  imu.writeReg(LSM6::CTRL2_G, 0b01010100);   // 0x54
-  // Enable auto-increment for multi-byte reads
-  imu.writeReg(LSM6::CTRL3_C, 0b00000100);   // 0x04
+  // Configure IMU
+  imu.enableDefault();
+  // Configure accelerometer: ±4g, 208 Hz
+  imu.writeReg(LSM6::CTRL1_XL, 0b01010100);
+  // Configure gyroscope: ±500 dps, 208 Hz
+  imu.writeReg(LSM6::CTRL2_G, 0b01010100);
 
-  delay(100);  // Let IMU stabilize
+  // Initialize encoders
+  encoders.getCountsAndResetLeft();
+  encoders.getCountsAndResetRight();
 
-  Serial.println("IMU initialized: LSM6DS33");
-  Serial.println("  Accel: ±4g, 208 Hz");
-  Serial.println("  Gyro: ±500 dps, 208 Hz");
+  // Initialize motors (stopped)
+  motors.setSpeeds(0, 0);
 
-  // Initialize encoders (DISABLED - IMU only)
-  // encoders.getCountsAndResetLeft();
-  // encoders.getCountsAndResetRight();
-
-  // Initialize motors (DISABLED - IMU only)
-  // motors.setSpeeds(0, 0);
-
-  // Initialize buffer to zeros
-  memset(i2c_buffer, 0, sizeof(i2c_buffer));
-
-  // Wait for initialization
+  // Wait for serial connection (optional)
   delay(500);
 
   // Indicate ready
   ledGreen(1);
   delay(500);
   ledGreen(0);
-
-  Serial.println("Balboa 32U4 I2C Slave Ready (Wire Library)");
-  Serial.print("I2C Slave Address: 0x");
-  Serial.println(I2C_SLAVE_ADDRESS, HEX);
-  Serial.println("Note: IMU read by Arduino, sent to RPi via I2C");
 }
 
 // ============================================================================
@@ -188,156 +132,250 @@ void loop() {
   unsigned long current_time_us = micros();
   unsigned long current_time_ms = millis();
 
-  // Check button A to toggle debug mode
-  if (current_time_ms - last_button_check_ms >= 200) {
+  // Check button A to toggle debug mode (debounced)
+  if (current_time_ms - last_button_check_ms >= 200) {  // Check every 200ms
     last_button_check_ms = current_time_ms;
     if (buttonA.getSingleDebouncedPress()) {
       debug_mode = !debug_mode;
       if (debug_mode) {
-        Serial.println("\n=== DEBUG MODE ENABLED ===");
+        Serial.println("\n\n=== DEBUG MODE ENABLED ===");
+        Serial.println("Human-readable output active");
+        Serial.println("Press button A again to return to binary mode");
+        Serial.println("===========================\n");
       } else {
-        Serial.println("\n=== DEBUG MODE DISABLED ===");
+        Serial.println("\n=== BINARY MODE ENABLED ===\n");
+        delay(100);  // Let message send before switching to binary
       }
     }
   }
 
-  // Update IMU at fixed rate (200 Hz)
-  static unsigned long last_imu_update_us = 0;
-  if (current_time_us - last_imu_update_us >= IMU_UPDATE_PERIOD_US) {
-    last_imu_update_us = current_time_us;
-
-    // Read IMU (accelerometer + gyroscope)
-    imu.read();
-    updateI2CBuffer();
-
-    if (debug_mode) {
-      printDebugInfo();
-    }
+  // Read IMU at fixed rate
+  if (current_time_us - last_imu_time_us >= IMU_SAMPLE_PERIOD_US) {
+    last_imu_time_us = current_time_us;
+    readIMU();
+    readEncoders();
+    sendSensorPacket();
   }
+
+  // Check for incoming control packets (only in binary mode)
+  if (!debug_mode && Serial.available() >= 10) {  // Control packet size
+    receiveControlPacket();
+  }
+
+  // Apply motor commands
+  applyMotorCommands();
 }
 
 // ============================================================================
-// ENCODER FUNCTIONS (DISABLED - IMU ONLY)
+// IMU FUNCTIONS
 // ============================================================================
 
-// void readEncoders() {
-//   // Read encoder counts
-//   int16_t counts_left = encoders.getCountsLeft();
-//   int16_t counts_right = encoders.getCountsRight();
-//
-//   // Convert to radians
-//   encoder_left_rad = (counts_left / WHEEL_COUNTS_PER_REV) * TWO_PI;
-//   encoder_right_rad = (counts_right / WHEEL_COUNTS_PER_REV) * TWO_PI;
-// }
+void readIMU() {
+  imu.read();
+
+  // Convert accelerometer to m/s²
+  // LSM6DS33 ±4g mode: 1 LSB = 0.122 mg
+  // Conversion: raw * 0.122e-3 * 9.81 m/s²
+  const float accel_scale = 0.122e-3 * 9.81;
+  accel_x_mps2 = imu.a.x * accel_scale;
+  accel_y_mps2 = imu.a.y * accel_scale;
+  accel_z_mps2 = imu.a.z * accel_scale;
+
+  // Convert gyroscope to rad/s
+  // LSM6DS33 ±500 dps mode: 1 LSB = 17.50 mdps
+  // Conversion: raw * 17.50e-3 * (π/180) rad/s
+  const float gyro_scale = 17.50e-3 * (PI / 180.0);
+  gyro_x_radps = imu.g.x * gyro_scale;
+  gyro_y_radps = imu.g.y * gyro_scale;
+  gyro_z_radps = imu.g.z * gyro_scale;
+}
 
 // ============================================================================
-// MOTOR FUNCTIONS (DISABLED - IMU ONLY)
+// ENCODER FUNCTIONS
 // ============================================================================
 
-// void applyMotorCommands() {
-//   // Convert torque (N⋅m) to motor speed (PWM)
-//   int16_t speed_left = torqueToSpeed(torque_left_nm);
-//   int16_t speed_right = torqueToSpeed(torque_right_nm);
-//
-//   // Apply to motors
-//   motors.setSpeeds(speed_left, speed_right);
-// }
-//
-// int16_t torqueToSpeed(float torque_nm) {
-//   // Linear mapping: speed = K * torque
-//   float speed = torque_nm * TORQUE_TO_SPEED_GAIN;
-//
-//   // Clamp to motor limits
-//   if (speed > MOTOR_MAX_SPEED) speed = MOTOR_MAX_SPEED;
-//   if (speed < -MOTOR_MAX_SPEED) speed = -MOTOR_MAX_SPEED;
-//
-//   return (int16_t)speed;
-// }
+void readEncoders() {
+  // Read encoder counts
+  int16_t counts_left = encoders.getCountsLeft();
+  int16_t counts_right = encoders.getCountsRight();
+
+  // Convert to radians
+  // One wheel revolution = 2π radians = WHEEL_COUNTS_PER_REV counts
+  encoder_left_rad = (counts_left / WHEEL_COUNTS_PER_REV) * TWO_PI;
+  encoder_right_rad = (counts_right / WHEEL_COUNTS_PER_REV) * TWO_PI;
+}
 
 // ============================================================================
-// I2C COMMUNICATION
+// MOTOR FUNCTIONS
 // ============================================================================
 
-void updateI2CBuffer() {
+void applyMotorCommands() {
+  // Convert torque (N⋅m) to motor speed (PWM)
+  int16_t speed_left = torqueToSpeed(torque_left_nm);
+  int16_t speed_right = torqueToSpeed(torque_right_nm);
+
+  // Apply to motors
+  motors.setSpeeds(speed_left, speed_right);
+}
+
+int16_t torqueToSpeed(float torque_nm) {
+  // Simple linear mapping: speed = K * torque
+  // Note: This should be calibrated during system identification!
+  float speed = torque_nm * TORQUE_TO_SPEED_GAIN;
+
+  // Clamp to motor limits
+  if (speed > MOTOR_MAX_SPEED) speed = MOTOR_MAX_SPEED;
+  if (speed < -MOTOR_MAX_SPEED) speed = -MOTOR_MAX_SPEED;
+
+  return (int16_t)speed;
+}
+
+// ============================================================================
+// SERIAL COMMUNICATION
+// ============================================================================
+
+void sendSensorPacket() {
   /**
-   * Update I2C buffer with latest IMU data for Raspberry Pi to read
-   *
-   * Strategy: Set buffer_ready flag to prevent I2C reads during update.
-   * This avoids blocking I2C interrupts which was causing hangs.
+   * Sensor packet format (45 bytes):
+   * - uint8: header (0xBB)
+   * - uint32: timestamp (microseconds)
+   * - float32[3]: accelerometer XYZ (m/s²)
+   * - float32[3]: gyroscope XYZ (rad/s)
+   * - float32[2]: encoder L/R (radians)
+   * - uint8: checksum
    */
 
-  uint32_t timestamp_us = micros();
+  // Debug mode: print human-readable data
+  if (debug_mode) {
+    static unsigned long last_debug_print_ms = 0;
+    unsigned long now = millis();
 
-  // Signal that buffer is being updated
-  buffer_ready = false;
+    // Print at 10 Hz in debug mode (not 200 Hz - too fast to read!)
+    if (now - last_debug_print_ms >= 100) {
+      last_debug_print_ms = now;
 
-  // Copy timestamp (4 bytes)
-  memcpy(&i2c_buffer[OFFSET_TIMESTAMP], &timestamp_us, sizeof(uint32_t));
+      Serial.println("--- Sensor Data ---");
+      Serial.print("Timestamp: "); Serial.print(micros()); Serial.println(" us");
+      Serial.print("Accel (m/s²):  X="); Serial.print(accel_x_mps2, 4);
+      Serial.print(" Y="); Serial.print(accel_y_mps2, 4);
+      Serial.print(" Z="); Serial.print(accel_z_mps2, 4);
+      Serial.print(" |Mag|="); Serial.println(sqrt(accel_x_mps2*accel_x_mps2 +
+                                                     accel_y_mps2*accel_y_mps2 +
+                                                     accel_z_mps2*accel_z_mps2), 4);
+      Serial.print("Gyro (rad/s):  X="); Serial.print(gyro_x_radps, 4);
+      Serial.print(" Y="); Serial.print(gyro_y_radps, 4);
+      Serial.print(" Z="); Serial.println(gyro_z_radps, 4);
+      Serial.print("Encoders (rad): L="); Serial.print(encoder_left_rad, 4);
+      Serial.print(" R="); Serial.println(encoder_right_rad, 4);
+      Serial.print("Motors (Nm):    L="); Serial.print(torque_left_nm, 4);
+      Serial.print(" R="); Serial.println(torque_right_nm, 4);
+      Serial.println();
+    }
+    return;  // Don't send binary packet in debug mode
+  }
 
-  // Copy accelerometer data (6 bytes) - raw int16 values
-  memcpy(&i2c_buffer[OFFSET_ACCEL_X], &imu.a.x, sizeof(int16_t));
-  memcpy(&i2c_buffer[OFFSET_ACCEL_Y], &imu.a.y, sizeof(int16_t));
-  memcpy(&i2c_buffer[OFFSET_ACCEL_Z], &imu.a.z, sizeof(int16_t));
+  // Binary mode: send packet as before
+  byte packet[38];  // 1 + 4 + 12 + 12 + 8 + 1 = 38 bytes
+  int idx = 0;
 
-  // Copy gyroscope data (6 bytes) - raw int16 values
-  memcpy(&i2c_buffer[OFFSET_GYRO_X], &imu.g.x, sizeof(int16_t));
-  memcpy(&i2c_buffer[OFFSET_GYRO_Y], &imu.g.y, sizeof(int16_t));
-  memcpy(&i2c_buffer[OFFSET_GYRO_Z], &imu.g.z, sizeof(int16_t));
+  // Header
+  packet[idx++] = SENSOR_PACKET_HEADER;
 
-  // Buffer update complete
-  buffer_ready = true;
+  // Timestamp (microseconds)
+  unsigned long timestamp = micros();
+  memcpy(&packet[idx], &timestamp, sizeof(timestamp));
+  idx += sizeof(timestamp);
+
+  // Accelerometer
+  memcpy(&packet[idx], &accel_x_mps2, sizeof(float));
+  idx += sizeof(float);
+  memcpy(&packet[idx], &accel_y_mps2, sizeof(float));
+  idx += sizeof(float);
+  memcpy(&packet[idx], &accel_z_mps2, sizeof(float));
+  idx += sizeof(float);
+
+  // Gyroscope
+  memcpy(&packet[idx], &gyro_x_radps, sizeof(float));
+  idx += sizeof(float);
+  memcpy(&packet[idx], &gyro_y_radps, sizeof(float));
+  idx += sizeof(float);
+  memcpy(&packet[idx], &gyro_z_radps, sizeof(float));
+  idx += sizeof(float);
+
+  // Encoders
+  memcpy(&packet[idx], &encoder_left_rad, sizeof(float));
+  idx += sizeof(float);
+  memcpy(&packet[idx], &encoder_right_rad, sizeof(float));
+  idx += sizeof(float);
+
+  // Checksum (XOR of all bytes)
+  byte checksum = 0;
+  for (int i = 0; i < idx; i++) {
+    checksum ^= packet[i];
+  }
+  packet[idx++] = checksum;
+
+  // Send packet
+  Serial.write(packet, idx);
+}
+
+void receiveControlPacket() {
+  /**
+   * Control packet format (10 bytes):
+   * - uint8: header (0xAA)
+   * - float32: left torque (N⋅m)
+   * - float32: right torque (N⋅m)
+   * - uint8: checksum
+   */
+
+  byte packet[10];
+
+  // Read packet
+  if (Serial.readBytes(packet, 10) != 10) {
+    return;  // Incomplete packet
+  }
+
+  // Verify header
+  if (packet[0] != CONTROL_PACKET_HEADER) {
+    // Not a valid control packet - flush and return
+    while (Serial.available() > 0) {
+      Serial.read();
+    }
+    return;
+  }
+
+  // Verify checksum
+  byte checksum_received = packet[9];
+  byte checksum_computed = 0;
+  for (int i = 0; i < 9; i++) {
+    checksum_computed ^= packet[i];
+  }
+
+  if (checksum_received != checksum_computed) {
+    return;  // Checksum mismatch
+  }
+
+  // Parse torque commands
+  memcpy(&torque_left_nm, &packet[1], sizeof(float));
+  memcpy(&torque_right_nm, &packet[5], sizeof(float));
+
+  // Update last packet time for watchdog
+  last_packet_time_ms = millis();
+
+  // Blink LED to indicate valid command received
+  ledYellow(1);
+  delay(1);
+  ledYellow(0);
 }
 
 // ============================================================================
-// DEBUG FUNCTIONS
+// UTILITY FUNCTIONS
 // ============================================================================
 
-void printDebugInfo() {
-  static unsigned long last_print_ms = 0;
-  unsigned long now = millis();
-
-  // Print at 10 Hz
-  if (now - last_print_ms >= 100) {
-    last_print_ms = now;
-
-    Serial.println("--- IMU Data ---");
-    Serial.print("Timestamp: ");
-    Serial.print(micros());
-    Serial.println(" us");
-
-    Serial.print("Accel (raw): X=");
-    Serial.print(imu.a.x);
-    Serial.print(" Y=");
-    Serial.print(imu.a.y);
-    Serial.print(" Z=");
-    Serial.println(imu.a.z);
-
-    Serial.print("Gyro (raw):  X=");
-    Serial.print(imu.g.x);
-    Serial.print(" Y=");
-    Serial.print(imu.g.y);
-    Serial.print(" Z=");
-    Serial.println(imu.g.z);
-
-    // DEBUG: Print I2C buffer contents
-    Serial.print("I2C Buffer[0-15]: ");
-    for (int i = 0; i < 16; i++) {
-      if (i2c_buffer[i] < 0x10) Serial.print("0");
-      Serial.print(i2c_buffer[i], HEX);
-      Serial.print(" ");
-    }
-    Serial.println();
-
-    // I2C diagnostics
-    Serial.print("I2C Stats: req=");
-    Serial.print(request_event_count);
-    Serial.print(" recv=");
-    Serial.print(receive_event_count);
-    Serial.print(" rx_bytes=");
-    Serial.print(last_wire_available);
-    Serial.print(" ready=");
-    Serial.println(buffer_ready ? "Y" : "N");
-
-    Serial.println();
+byte computeChecksum(const byte* data, size_t length) {
+  byte checksum = 0;
+  for (size_t i = 0; i < length; i++) {
+    checksum ^= data[i];
   }
+  return checksum;
 }

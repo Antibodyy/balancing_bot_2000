@@ -1,7 +1,7 @@
 """Hardware controller wrapper for MPC balancing robot.
 
 This module provides the main control loop that integrates:
-- I2C communication with Arduino
+- Serial communication with Arduino
 - MPC controller from simulation
 - Real-time control loop timing
 """
@@ -13,7 +13,7 @@ import numpy as np
 
 from control_pipeline import BalanceController, ControlOutput
 from mpc import ReferenceCommand, ReferenceMode
-from .i2c_interface import BalboaI2CInterface
+from .serial_interface import BalboaSerialInterface
 
 
 @dataclass
@@ -40,38 +40,38 @@ class HardwareBalanceController:
     """Hardware wrapper around simulation BalanceController.
 
     This class manages the real-time control loop:
-    1. Read sensor data from Arduino via I2C
+    1. Read sensor data from Arduino via serial
     2. Feed to MPC controller (from simulation)
     3. Send torque commands back to Arduino
     4. Monitor timing and log data
 
     Example:
-        >>> from hardware import load_hardware_mpc, BalboaI2CInterface
+        >>> from hardware import load_hardware_mpc, BalboaSerialInterface
         >>> from hardware import HardwareBalanceController
         >>> from mpc import ReferenceCommand, ReferenceMode
         >>>
         >>> controller = load_hardware_mpc()
-        >>> i2c = BalboaI2CInterface(bus=1, address=0x20)
-        >>> hw_controller = HardwareBalanceController(i2c, controller)
+        >>> serial = BalboaSerialInterface(port='/dev/ttyACM0')
+        >>> hw_controller = HardwareBalanceController(serial, controller)
         >>>
         >>> reference = ReferenceCommand(mode=ReferenceMode.BALANCE)
         >>> hw_controller.run_control_loop(reference, duration_s=60.0)
     """
 
     def __init__(self,
-                 i2c_interface: BalboaI2CInterface,
+                 serial_interface: BalboaSerialInterface,
                  balance_controller: BalanceController,
                  target_frequency_hz: float = 50.0,
                  enable_logging: bool = True):
         """Initialize hardware controller.
 
         Args:
-            i2c_interface: I2C connection to Arduino
+            serial_interface: Serial connection to Arduino
             balance_controller: MPC controller (from simulation code!)
             target_frequency_hz: Target control loop frequency (default 50 Hz)
             enable_logging: Enable data logging to console
         """
-        self.i2c = i2c_interface
+        self.serial = serial_interface
         self.controller = balance_controller
         self.target_period_s = 1.0 / target_frequency_hz
         self.enable_logging = enable_logging
@@ -138,7 +138,7 @@ class HardwareBalanceController:
         finally:
             # Emergency stop on exit
             print("Stopping motors...")
-            self.i2c.emergency_stop()
+            self.serial.emergency_stop()
             self._running = False
 
         # Print final statistics
@@ -157,18 +157,18 @@ class HardwareBalanceController:
         iter_start = time.time()
 
         # 1. Read sensor data from Arduino
-        sensor_data = self.i2c.read_sensors()
+        sensor_data = self.serial.read_sensors()
 
         if sensor_data is None:
             # No data available - send zero torque and return
-            self.i2c.send_motor_command(0.0, 0.0)
+            self.serial.send_motor_command(0.0, 0.0)
             return 0.0, 0.0
 
         # 2. Run MPC controller (from simulation!)
         control_output = self.controller.step(sensor_data, reference_command)
 
         # 3. Send torque commands to Arduino
-        self.i2c.send_motor_command(
+        self.serial.send_motor_command(
             control_output.torque_left_nm,
             control_output.torque_right_nm
         )
