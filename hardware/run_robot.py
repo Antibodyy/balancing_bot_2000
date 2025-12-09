@@ -171,7 +171,7 @@ def create_reference_command(args) -> ReferenceCommand:
             yaw_rate_radps=args.yaw_rate
         )
     
-    elif args.mode == 'position':  # Add this new branch
+    elif args.mode == 'position':  
         if args.target_position is None:
             print("Error: --target-position required for position mode")
             sys.exit(1)
