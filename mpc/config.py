@@ -36,6 +36,7 @@ class MPCConfig:
         pitch_rate_limit_radps: Maximum allowed pitch rate |theta_dot|
         control_limit_nm: Maximum allowed control torque |tau|
         use_terminal_cost_dare: If True, compute P via discrete ARE
+        terminal_cost_scale: Scaling factor for terminal cost P
         solver_name: QP solver to use ('osqp' or 'qpoases')
         warm_start_enabled: Enable warm-starting from previous solution
         terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
@@ -59,6 +60,7 @@ class MPCConfig:
 
     # Terminal cost
     use_terminal_cost_dare: bool
+    terminal_cost_scale: float
 
     # Solver settings
     solver_name: str
@@ -86,6 +88,9 @@ class MPCConfig:
         validate_positive(self.pitch_limit_rad, 'pitch_limit_rad')
         validate_positive(self.pitch_rate_limit_radps, 'pitch_rate_limit_radps')
         validate_positive(self.control_limit_nm, 'control_limit_nm')
+
+        # Terminal cost
+        validate_positive(self.terminal_cost_scale, 'terminal_cost_scale')
 
         # Terminal constraints (optional)
         if self.terminal_pitch_limit_rad is not None:
@@ -129,6 +134,7 @@ class MPCConfig:
             pitch_rate_limit_radps=config['pitch_rate_limit_radps'],
             control_limit_nm=config['control_limit_nm'],
             use_terminal_cost_dare=config['use_terminal_cost_dare'],
+            terminal_cost_scale=config.get('terminal_cost_scale', 1.0),
             solver_name=config['solver_name'],
             warm_start_enabled=config['warm_start_enabled'],
             # Terminal constraints (optional, backward compatible)

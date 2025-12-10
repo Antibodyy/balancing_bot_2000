@@ -2,16 +2,16 @@
 # Single source of truth per style_guide.md section 4.4
 
 # Horizon parameters
-prediction_horizon_steps: 20
-sampling_period_s: 0.02  # 50 Hz control loop
+prediction_horizon_steps: 40
+sampling_period_s: 0.02  
 
 # Cost function weights (diagonal elements)
 # State: [x, theta, psi, dx, dtheta, dpsi]
 state_cost_diagonal:
-  - 10.0      # x position
-  - 50.0    # theta (pitch) - highest priority for balance
+  - 100.0      # x position
+  - 500.0    # theta (pitch) - highest priority for balance
   - 50.0    # psi (yaw/heading)
-  - 10.0     # dx (forward velocity)
+  - 50.0     # dx (forward velocity)
   - 10.0     # dtheta (pitch rate)
   - 1.0      # dpsi (yaw rate)
 
@@ -22,14 +22,15 @@ control_cost_diagonal:
 
 # Terminal cost computation
 use_terminal_cost_dare: true
+terminal_cost_scale: 1.0  # Scaling factor for terminal cost P (1.0 = no scaling)
 
 # State constraints
 pitch_limit_rad: 0.524              # 30 degrees
-pitch_rate_limit_radps: 5.0         # approximately 286 deg/s
+pitch_rate_limit_radps: 3.51         # approximately 286 deg/s sqrt((2*t_max*theta_max)/I_body_y)
 
 # Terminal state constraints (at step N) - applied in addition to state constraints
-terminal_pitch_limit_rad: 0.0       # Force pitch to zero at terminal state
-terminal_pitch_rate_limit_radps: 0.0  # Force pitch rate to zero at terminal state
+terminal_pitch_limit_rad: null      # Force pitch to zero at terminal state (null to turn it off)
+terminal_pitch_rate_limit_radps: null  # Force pitch rate to zero at terminal state
 
 # Control constraints
 control_limit_nm: 0.25              # Motor stall torque limit

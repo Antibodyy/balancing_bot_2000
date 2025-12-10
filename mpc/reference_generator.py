@@ -125,6 +125,7 @@ class ReferenceGenerator:
         """Generate constant zero reference for balance mode.
 
         The robot should maintain upright posture at rest.
+        All states are zero: position=0, pitch=0, yaw=0, velocity=0, pitch_rate=0, yaw_rate=0
 
         Returns:
             Reference trajectory (N+1, STATE_DIMENSION) of zeros
@@ -151,6 +152,10 @@ class ReferenceGenerator:
         """
         horizon = self._prediction_horizon_steps
         reference = np.zeros((horizon + 1, STATE_DIMENSION))
+
+        # Explicitly set pitch to 0 (maintain upright balance)
+        reference[:, PITCH_INDEX] = 0.0
+        reference[:, PITCH_RATE_INDEX] = 0.0
 
         # Set velocity references
         reference[:, VELOCITY_INDEX] = desired_velocity_mps
@@ -191,6 +196,10 @@ class ReferenceGenerator:
         """
         horizon = self._prediction_horizon_steps
         reference = np.zeros((horizon + 1, STATE_DIMENSION))
+
+        # Explicitly set pitch to 0 (maintain upright balance)
+        reference[:, PITCH_INDEX] = 0.0
+        reference[:, PITCH_RATE_INDEX] = 0.0
 
         current_position = current_state[POSITION_INDEX]
         current_heading = current_state[YAW_INDEX]

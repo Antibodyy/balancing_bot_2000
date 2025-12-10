@@ -207,6 +207,8 @@ class MPCSimulation:
             discrete.control_matrix_discrete,
             Q, R,
         )
+        # Apply terminal cost scaling
+        P = self._mpc_config.terminal_cost_scale * P
 
         # Create constraints
         state_constraints, input_constraints = create_constraints_from_config(
