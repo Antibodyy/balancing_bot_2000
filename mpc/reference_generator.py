@@ -28,9 +28,9 @@ from robot_dynamics.parameters import (
 class ReferenceMode(Enum):
     """Reference generation mode."""
 
-    BALANCE = "balance"  # Upright stationary
-    VELOCITY = "velocity"  # Track velocity/yaw rate
-    POSITION = "position"  # Track position/heading
+    BALANCE = "balance"     # Upright stationary
+    VELOCITY = "velocity"   # Track velocity/yaw rate
+    POSITION = "position"   # Track position/heading
 
 
 @dataclass

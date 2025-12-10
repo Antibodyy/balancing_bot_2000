@@ -20,7 +20,12 @@ from typing import Optional
 import casadi as ca
 import numpy as np
 
-from robot_dynamics.parameters import STATE_DIMENSION, CONTROL_DIMENSION
+from robot_dynamics.parameters import (
+    STATE_DIMENSION,
+    CONTROL_DIMENSION,
+    PITCH_INDEX,
+    PITCH_RATE_INDEX,
+)
 from robot_dynamics.discretization import DiscreteDynamics
 from mpc.constraints import StateConstraints, InputConstraints
 
@@ -74,6 +79,8 @@ class LinearMPCSolver:
         input_constraints: InputConstraints,
         solver_name: str = 'osqp',
         warm_start_enabled: bool = True,
+        terminal_pitch_limit_rad: Optional[float] = None,
+        terminal_pitch_rate_limit_radps: Optional[float] = None,
     ) -> None:
         """Initialize the MPC solver.
 
@@ -83,10 +90,12 @@ class LinearMPCSolver:
             state_cost: State cost matrix Q
             control_cost: Control cost matrix R
             terminal_cost: Terminal cost matrix P
-            state_constraints: State bound constraints
+            state_constraints: State bound constraints (path constraints, k=0..N)
             input_constraints: Control bound constraints
             solver_name: QP solver to use ('osqp' or 'qpoases')
             warm_start_enabled: Enable warm-starting from previous solution
+            terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
+            terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
         """
         self._prediction_horizon_steps = prediction_horizon_steps
         self._state_cost = state_cost
@@ -96,6 +105,8 @@ class LinearMPCSolver:
         self._input_constraints = input_constraints
         self._solver_name = solver_name
         self._warm_start_enabled = warm_start_enabled
+        self._terminal_pitch_limit_rad = terminal_pitch_limit_rad
+        self._terminal_pitch_rate_limit_radps = terminal_pitch_rate_limit_radps
 
         # Store dynamics matrices
         self._state_matrix = discrete_dynamics.state_matrix_discrete
@@ -181,6 +192,33 @@ class LinearMPCSolver:
                         self._state_variables[state_index, step_index]
                         <= state_upper[state_index]
                     )
+
+        # ADDITIONAL terminal constraints at step N (applied on top of state constraints)
+        if (self._terminal_pitch_limit_rad is not None or
+            self._terminal_pitch_rate_limit_radps is not None):
+
+            # Additional constraint: pitch at terminal must satisfy tighter bounds
+            # This is IN ADDITION to the regular state constraint already applied above
+            if self._terminal_pitch_limit_rad is not None:
+                self._opti.subject_to(
+                    self._state_variables[PITCH_INDEX, horizon]
+                    >= -self._terminal_pitch_limit_rad
+                )
+                self._opti.subject_to(
+                    self._state_variables[PITCH_INDEX, horizon]
+                    <= self._terminal_pitch_limit_rad
+                )
+
+            # Additional constraint: pitch rate at terminal must satisfy tighter bounds
+            if self._terminal_pitch_rate_limit_radps is not None:
+                self._opti.subject_to(
+                    self._state_variables[PITCH_RATE_INDEX, horizon]
+                    >= -self._terminal_pitch_rate_limit_radps
+                )
+                self._opti.subject_to(
+                    self._state_variables[PITCH_RATE_INDEX, horizon]
+                    <= self._terminal_pitch_rate_limit_radps
+                )
 
         # Control constraints (box constraints)
         control_lower, control_upper = self._input_constraints.get_bounds()

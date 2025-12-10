@@ -8,10 +8,10 @@ sampling_period_s: 0.02  # 50 Hz control loop
 # Cost function weights (diagonal elements)
 # State: [x, theta, psi, dx, dtheta, dpsi]
 state_cost_diagonal:
-  - 1.0      # x position
-  - 100.0    # theta (pitch) - highest priority for balance
-  - 10.0     # psi (yaw/heading)
-  - 1.0      # dx (forward velocity)
+  - 10.0      # x position
+  - 50.0    # theta (pitch) - highest priority for balance
+  - 50.0    # psi (yaw/heading)
+  - 10.0     # dx (forward velocity)
   - 10.0     # dtheta (pitch rate)
   - 1.0      # dpsi (yaw rate)
 
@@ -26,6 +26,10 @@ use_terminal_cost_dare: true
 # State constraints
 pitch_limit_rad: 0.524              # 30 degrees
 pitch_rate_limit_radps: 5.0         # approximately 286 deg/s
+
+# Terminal state constraints (at step N) - applied in addition to state constraints
+terminal_pitch_limit_rad: 0.0       # Force pitch to zero at terminal state
+terminal_pitch_rate_limit_radps: 0.0  # Force pitch rate to zero at terminal state
 
 # Control constraints
 control_limit_nm: 0.25              # Motor stall torque limit

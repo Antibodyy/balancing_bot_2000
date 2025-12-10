@@ -106,7 +106,7 @@ def compute_terminal_cost_dare(
             f"({n_controls}, {n_controls})"
         )
 
-    # Solve discrete algebraic Riccati equation
+    # Solve discrete algebraic Riccati equation (DARE)
     terminal_cost = scipy.linalg.solve_discrete_are(
         state_matrix_discrete,
         control_matrix_discrete,
