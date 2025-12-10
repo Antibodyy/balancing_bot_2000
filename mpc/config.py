@@ -41,6 +41,7 @@ class MPCConfig:
         warm_start_enabled: Enable warm-starting from previous solution
         terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
         terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
+        online_linearization_enabled: If True, re-linearize dynamics at current state each step
     """
 
     # Horizon parameters
@@ -69,6 +70,9 @@ class MPCConfig:
     # Terminal state constraints (optional - applied in addition to state constraints at step N)
     terminal_pitch_limit_rad: Optional[float] = None
     terminal_pitch_rate_limit_radps: Optional[float] = None
+
+    # Online linearization (successive linearization at current state)
+    online_linearization_enabled: bool = False
 
     def __post_init__(self) -> None:
         """Validate parameters satisfy constraints."""
@@ -140,6 +144,8 @@ class MPCConfig:
             # Terminal constraints (optional, backward compatible)
             terminal_pitch_limit_rad=config.get('terminal_pitch_limit_rad', None),
             terminal_pitch_rate_limit_radps=config.get('terminal_pitch_rate_limit_radps', None),
+            # Online linearization (optional, backward compatible)
+            online_linearization_enabled=config.get('online_linearization_enabled', False),
         )
 
     @property

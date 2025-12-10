@@ -22,6 +22,12 @@ def main():
                         help='Use velocity tracking mode')
     parser.add_argument('--vel-mps', type=float, default=0.1,
                         help='Target velocity in m/s (with --velocity)')
+    parser.add_argument('--circular', action='store_true',
+                        help='Use circular path tracking mode')
+    parser.add_argument('--radius', type=float, default=1.0,
+                        help='Circle radius in meters (with --circular)')
+    parser.add_argument('--clockwise', action='store_true',
+                        help='Rotate clockwise (default: counter-clockwise)')
     args = parser.parse_args()
 
     if not MUJOCO_AVAILABLE:
@@ -32,7 +38,20 @@ def main():
     sim = MPCSimulation()
 
     # Set up reference command
-    if args.velocity:
+    if args.circular:
+        yaw_rate = args.vel_mps / args.radius
+        command = ReferenceCommand(
+            mode=ReferenceMode.CIRCULAR,
+            radius_m=args.radius,
+            target_velocity_mps=args.vel_mps,
+            center_x_m=args.radius,  # Start robot on circle
+            center_y_m=0.0,
+            clockwise=args.clockwise,
+        )
+        direction = "clockwise" if args.clockwise else "counter-clockwise"
+        print(f"Mode: Circular path (r={args.radius}m, v={args.vel_mps}m/s, "
+              f"ω={yaw_rate:.3f}rad/s, {direction})")
+    elif args.velocity:
         command = ReferenceCommand(
             mode=ReferenceMode.VELOCITY,
             velocity_mps=args.vel_mps,

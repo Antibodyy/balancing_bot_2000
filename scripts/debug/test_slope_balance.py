@@ -353,6 +353,41 @@ try:
         plt.savefig(f"{save_dir}/state_space.png", dpi=150, bbox_inches='tight')
         print(f"  Saved: {save_dir}/state_space.png")
 
+        # Create dual-axis plot for 2-column LaTeX paper
+        # Figure size: 7 inches wide (typical 2-column width), 3 inches tall
+        fig3, ax_pitch = plt.subplots(figsize=(7, 3))
+
+        # Plot pitch on left y-axis
+        color_pitch = 'tab:blue'
+        ax_pitch.set_xlabel('Time (s)', fontsize=11, fontweight='bold')
+        ax_pitch.set_ylabel('Pitch Angle (deg)', color=color_pitch, fontsize=11, fontweight='bold')
+        line1 = ax_pitch.plot(time_s, np.rad2deg(result.state_history[:, PITCH_INDEX]),
+                               color=color_pitch, linewidth=2, label='Pitch', alpha=0.9)
+        ax_pitch.axhline(np.rad2deg(equilibrium_pitch_rad), color=color_pitch,
+                        linestyle='--', linewidth=1.5, alpha=0.6)
+        ax_pitch.tick_params(axis='y', labelcolor=color_pitch, labelsize=10)
+        ax_pitch.tick_params(axis='x', labelsize=10)
+        ax_pitch.grid(True, alpha=0.25, linewidth=0.5)
+
+        # Create second y-axis for velocity
+        ax_vel = ax_pitch.twinx()
+        color_vel = 'tab:red'
+        ax_vel.set_ylabel('Velocity (m/s)', color=color_vel, fontsize=11, fontweight='bold')
+        line2 = ax_vel.plot(time_s, result.state_history[:, VELOCITY_INDEX],
+                           color=color_vel, linewidth=2, label='Velocity', alpha=0.9)
+        ax_vel.axhline(0, color=color_vel, linestyle='--', linewidth=1.5, alpha=0.6)
+        ax_vel.tick_params(axis='y', labelcolor=color_vel, labelsize=10)
+
+        # Add combined legend with better positioning for publication
+        lines = line1 + line2
+        labels = [l.get_label() for l in lines]
+        ax_pitch.legend(lines, labels, loc='best', fontsize=10, framealpha=0.9)
+
+        plt.tight_layout()
+        # Save at 300 DPI for publication quality
+        plt.savefig(f"{save_dir}/pitch_velocity_report.png", dpi=300, bbox_inches='tight')
+        print(f"  Saved: {save_dir}/pitch_velocity_report.png")
+
         plt.close('all')
 
         print(f"\nPlots saved to: {save_dir}/")

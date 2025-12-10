@@ -108,12 +108,22 @@ class LinearMPCSolver:
         self._terminal_pitch_limit_rad = terminal_pitch_limit_rad
         self._terminal_pitch_rate_limit_radps = terminal_pitch_rate_limit_radps
 
-        # Store dynamics matrices
+        # Store dynamics matrices (will be converted to parameters after Opti creation)
         self._state_matrix = discrete_dynamics.state_matrix_discrete
         self._control_matrix = discrete_dynamics.control_matrix_discrete
 
-        # Build the optimization problem
+        # Build the optimization problem (creates Opti instance and parameters)
         self._build_optimization_problem()
+
+        # Initialize dynamics parameters with provided matrices
+        self._opti.set_value(
+            self._state_matrix_param,
+            discrete_dynamics.state_matrix_discrete
+        )
+        self._opti.set_value(
+            self._control_matrix_param,
+            discrete_dynamics.control_matrix_discrete
+        )
 
         # Warm start storage
         self._previous_state_solution: Optional[np.ndarray] = None
@@ -137,6 +147,10 @@ class LinearMPCSolver:
         # Parameters (set at solve time)
         self._initial_state_param = self._opti.parameter(n_states)
         self._reference_trajectory_param = self._opti.parameter(n_states, horizon + 1)
+
+        # Dynamics matrices as parameters (for efficient online linearization)
+        self._state_matrix_param = self._opti.parameter(n_states, n_states)
+        self._control_matrix_param = self._opti.parameter(n_states, n_controls)
 
         # Build cost function
         cost = 0
@@ -164,10 +178,11 @@ class LinearMPCSolver:
         self._opti.minimize(cost)
 
         # Dynamics constraints: x_{k+1} = A_d x_k + B_d u_k
+        # Use parameters instead of fixed matrices for online linearization
         for step_index in range(horizon):
             next_state = (
-                self._state_matrix @ self._state_variables[:, step_index]
-                + self._control_matrix @ self._control_variables[:, step_index]
+                self._state_matrix_param @ self._state_variables[:, step_index]
+                + self._control_matrix_param @ self._control_variables[:, step_index]
             )
             self._opti.subject_to(
                 self._state_variables[:, step_index + 1] == next_state
@@ -373,11 +388,24 @@ class LinearMPCSolver:
     def update_dynamics(self, discrete_dynamics: DiscreteDynamics) -> None:
         """Update the dynamics matrices for successive linearization.
 
-        Call this method when re-linearizing around a new operating point.
+        Efficiently updates dynamics by changing CasADi parameter values
+        instead of rebuilding the entire optimization problem. This is
+        critical for real-time performance in online linearization.
 
         Args:
             discrete_dynamics: New discrete-time dynamics (A_d, B_d)
         """
+        # Update CasADi parameters (FAST - just updates values)
+        self._opti.set_value(
+            self._state_matrix_param,
+            discrete_dynamics.state_matrix_discrete
+        )
+        self._opti.set_value(
+            self._control_matrix_param,
+            discrete_dynamics.control_matrix_discrete
+        )
+
+        # Update numpy copies for reference
         self._state_matrix = discrete_dynamics.state_matrix_discrete
         self._control_matrix = discrete_dynamics.control_matrix_discrete
 
@@ -385,8 +413,7 @@ class LinearMPCSolver:
         self._previous_state_solution = None
         self._previous_control_solution = None
 
-        # Rebuild the optimization problem with new dynamics
-        self._build_optimization_problem()
+        # NO NEED to rebuild problem - parameters handle the update!
 
     @property
     def prediction_horizon_steps(self) -> int:

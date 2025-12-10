@@ -17,13 +17,19 @@ from mpc import ReferenceCommand, ReferenceMode
 parser = argparse.ArgumentParser(description='Debug velocity circular motion')
 parser.add_argument('--viewer', action='store_true',
                     help='Show MuJoCo viewer (disables batch plotting)')
-parser.add_argument('--velocity', type=float, default=0.1,
-                    help='Forward velocity in m/s (default: 0.1)')
+parser.add_argument('--velocity', type=float, default=0.2,
+                    help='Forward velocity in m/s (default: 0.2)')
 parser.add_argument('--radius', type=float, default=0.5,
                     help='Circle radius in m (default: 0.5)')
-parser.add_argument('--duration', type=float, default=10.0,
-                    help='Simulation duration in s (default: 10.0)')
+parser.add_argument('--circles', type=float, default=1.0,
+                    help='Number of circles to complete (default: 1.0)')
 args = parser.parse_args()
+
+# Calculate duration for specified number of circles
+# Circle circumference = 2πr, time = distance/speed
+circle_circumference = 2 * np.pi * args.radius
+duration_per_circle = circle_circumference / args.velocity if args.velocity > 0 else 10.0
+args.duration = duration_per_circle * args.circles
 
 if args.viewer and not MUJOCO_AVAILABLE:
     print("MuJoCo is not installed. Install with: pip install mujoco")
@@ -63,8 +69,9 @@ print("VELOCITY MODE: CIRCULAR MOTION TEST")
 print("="*80)
 print(f"  Forward velocity: {args.velocity} m/s")
 print(f"  Circle radius: {args.radius} m")
+print(f"  Circle circumference: {circle_circumference:.3f} m")
 print(f"  Yaw rate: {yaw_rate:.3f} rad/s ({np.rad2deg(yaw_rate):.1f}°/s)")
-print(f"  Duration: {args.duration}s")
+print(f"  Duration: {args.duration:.2f}s ({args.circles:.1f} circles)")
 print(f"\n  Expected heading change: {expected_heading_change:.3f} rad ({np.rad2deg(expected_heading_change):.1f}°)")
 print(f"  Circle fraction: {circle_fraction:.2f} ({circle_fraction*100:.1f}%)")
 if circle_fraction >= 1.0:
@@ -225,7 +232,7 @@ else:
         print(f"  Approximate traveled: {arc_length:.3f} m")
 
     # Generate plots
-    save_dir = f"debug_output/velocity_circle_{args.velocity}mps_{args.radius}m_radius"
+    save_dir = f"debug_output/velocity_circle_{args.velocity}mps_{args.radius}m_{args.circles}circles"
     print(f"\n\nGenerating diagnostic plots...")
     diag.plot_all(result, save_dir=save_dir, show=False)
     print(f"Plots saved to: {save_dir}/")

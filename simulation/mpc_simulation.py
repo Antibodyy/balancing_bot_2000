@@ -249,6 +249,8 @@ class MPCSimulation:
             sampling_period_s=self._mpc_config.sampling_period_s,
             wheel_radius_m=self._robot_params.wheel_radius_m,
             track_width_m=self._robot_params.track_width_m,
+            robot_params=self._robot_params,
+            online_linearization_enabled=self._mpc_config.online_linearization_enabled,
             use_simulation_velocity=True,  # FIX: Enable corrected velocity in simulation
         )
 

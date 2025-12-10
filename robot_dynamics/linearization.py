@@ -7,6 +7,7 @@ Uses CasADi automatic differentiation for exact Jacobians.
 import casadi as ca
 import numpy as np
 from dataclasses import dataclass
+from typing import Optional
 from robot_dynamics.parameters import RobotParameters
 from robot_dynamics.continuous_dynamics import (
     build_dynamics_model,
@@ -45,6 +46,86 @@ class LinearizedDynamics:
             )
 
 
+def build_jacobian_functions(params: RobotParameters) -> tuple:
+    """Build reusable CasADi Jacobian functions for efficient online linearization.
+
+    Builds symbolic Jacobian functions ONCE, which can then be evaluated
+    at different states efficiently without rebuilding symbolic expressions.
+    This is significantly faster than rebuilding symbolic expressions at
+    each linearization point.
+
+    Args:
+        params: Robot parameters
+
+    Returns:
+        Tuple of (jacobian_state_fn, jacobian_control_fn) - CasADi Functions
+        that can be evaluated at any (state, control) point
+    """
+    # Create symbolic variables
+    state_sym = ca.SX.sym('state', 6)
+    control_sym = ca.SX.sym('control', 2)
+
+    # Build symbolic dynamics
+    dynamics_function = build_dynamics_model(params)
+    state_derivative_sym = dynamics_function(state_sym, control_sym)
+
+    # Compute Jacobians symbolically
+    state_jacobian_sym = ca.jacobian(state_derivative_sym, state_sym)
+    control_jacobian_sym = ca.jacobian(state_derivative_sym, control_sym)
+
+    # Create reusable Functions
+    jacobian_state_fn = ca.Function(
+        'jacobian_state', [state_sym, control_sym], [state_jacobian_sym]
+    )
+    jacobian_control_fn = ca.Function(
+        'jacobian_control', [state_sym, control_sym], [control_jacobian_sym]
+    )
+
+    return (jacobian_state_fn, jacobian_control_fn)
+
+
+def linearize_at_state(
+    params: RobotParameters,
+    state: np.ndarray,
+    control: np.ndarray,
+    jacobian_functions: Optional[tuple] = None,
+) -> LinearizedDynamics:
+    """Compute linearized dynamics A, B matrices around any state.
+
+    Unlike linearize_at_equilibrium(), this does NOT validate equilibrium.
+    Use for successive/online linearization in MPC where we linearize
+    around the current (non-equilibrium) state.
+
+    Args:
+        params: Robot parameters
+        state: State around which to linearize (6,)
+        control: Control input at linearization point (2,)
+        jacobian_functions: Optional pre-built (jacobian_state_fn, jacobian_control_fn)
+                           from build_jacobian_functions(). If None, builds them.
+                           Providing cached functions is ~10x faster.
+
+    Returns:
+        LinearizedDynamics object containing A, B matrices
+    """
+    # Use cached Jacobian functions if provided, otherwise build them
+    if jacobian_functions is not None:
+        jacobian_state_fn, jacobian_control_fn = jacobian_functions
+    else:
+        jacobian_state_fn, jacobian_control_fn = build_jacobian_functions(params)
+
+    # Evaluate at specified state (FAST - just numerical evaluation)
+    state_matrix = np.array(jacobian_state_fn(state, control))
+    control_matrix = np.array(jacobian_control_fn(state, control))
+
+    return LinearizedDynamics(
+        state_matrix=state_matrix,
+        control_matrix=control_matrix,
+        equilibrium_state=state,  # Not truly equilibrium, just linearization point
+        equilibrium_control=control,
+        parameters=params
+    )
+
+
 def linearize_at_equilibrium(
     params: RobotParameters,
     equilibrium_state: np.ndarray,
@@ -79,42 +160,5 @@ def linearize_at_equilibrium(
             f"Expected near-zero accelerations at equilibrium."
         )
 
-    # Create symbolic variables
-    state_sym = ca.SX.sym('state', 6)
-    control_sym = ca.SX.sym('control', 2)
-
-    # Build symbolic dynamics
-    dynamics_function = build_dynamics_model(params)
-    state_derivative_sym = dynamics_function(state_sym, control_sym)
-
-    # Compute Jacobians symbolically using automatic differentiation
-    state_jacobian_sym = ca.jacobian(state_derivative_sym, state_sym)
-    control_jacobian_sym = ca.jacobian(state_derivative_sym, control_sym)
-
-    # Create Functions for evaluation
-    jacobian_state_function = ca.Function(
-        'jacobian_state',
-        [state_sym, control_sym],
-        [state_jacobian_sym]
-    )
-    jacobian_control_function = ca.Function(
-        'jacobian_control',
-        [state_sym, control_sym],
-        [control_jacobian_sym]
-    )
-
-    # Evaluate at equilibrium and convert to NumPy
-    state_matrix = np.array(
-        jacobian_state_function(equilibrium_state, equilibrium_control)
-    )
-    control_matrix = np.array(
-        jacobian_control_function(equilibrium_state, equilibrium_control)
-    )
-
-    return LinearizedDynamics(
-        state_matrix=state_matrix,
-        control_matrix=control_matrix,
-        equilibrium_state=equilibrium_state,
-        equilibrium_control=equilibrium_control,
-        parameters=params
-    )
+    # Use linearize_at_state with equilibrium validation passed
+    return linearize_at_state(params, equilibrium_state, equilibrium_control)

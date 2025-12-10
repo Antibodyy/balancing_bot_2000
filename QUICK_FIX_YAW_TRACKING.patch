@@ -1,0 +1,54 @@
+## Quick Fix for Yaw Tracking
+
+Apply this patch to immediately improve circular motion tracking.
+
+### What This Does
+Applies an empirical correction factor (61x) to the yaw inertia to match
+the actual MuJoCo simulation response. This accounts for wheel rotational
+inertia that the simplified linearized model ignores.
+
+### Apply the Fix
+
+Edit `robot_dynamics/continuous_dynamics.py` line 259:
+
+```python
+# BEFORE:
+yaw_inertia = params.body_yaw_inertia_kg_m2
+
+# AFTER:
+yaw_inertia = params.body_yaw_inertia_kg_m2 * 61.0  # Empirical correction for wheel inertia
+```
+
+### Test the Fix
+
+```bash
+# Run circular motion test
+python scripts/debug/debug_velocity_circle.py --circles 1.0 --velocity 0.2 --radius 0.5
+
+# Expected improvement:
+# - Yaw rate tracking should improve from 86% error to <20% error
+# - Robot should follow a curved path instead of straight line
+```
+
+### Why 61x?
+
+From experimental measurement (scripts/debug/diagnose_yaw_coupling.py):
+- Linearized model predicts: 60.0 rad/s² yaw acceleration
+- MuJoCo simulation produces: 1.0 rad/s² yaw acceleration
+- Ratio: 61.0x discrepancy
+
+This factor compensates for wheel rotational inertia which acts as
+a "gear reduction" between motor torques and body yaw acceleration.
+
+### Limitations
+
+- **Empirical fix**: Based on simulation measurements, not first principles
+- **MuJoCo-specific**: Factor may differ on real hardware
+- **Better long-term**: Include wheel DOFs in state vector (see CIRCULAR_MOTION_ANALYSIS.md Option 2)
+
+### Reverting
+
+To revert, change line 259 back to:
+```python
+yaw_inertia = params.body_yaw_inertia_kg_m2
+```

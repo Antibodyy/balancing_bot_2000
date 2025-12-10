@@ -8,17 +8,17 @@ sampling_period_s: 0.02
 # Cost function weights (diagonal elements)
 # State: [x, theta, psi, dx, dtheta, dpsi]
 state_cost_diagonal:
-  - 100.0      # x position
+  - 0.1      # x position - very low for velocity mode (position should drift freely)
   - 500.0    # theta (pitch) - highest priority for balance
-  - 50.0    # psi (yaw/heading)
+  - 500   # psi (yaw/heading) - very low, let it drift based on yaw rate
   - 50.0     # dx (forward velocity)
   - 10.0     # dtheta (pitch rate)
-  - 1.0      # dpsi (yaw rate)
+  - 5000.0      # dpsi (yaw rate) - VERY HIGH for circular motion tracking
 
 # Control: [tau_L, tau_R]
 control_cost_diagonal:
-  - 0.1      # left wheel torque
-  - 0.1      # right wheel torque
+  - 0.01      # left wheel torque - reduced to allow more aggressive turning
+  - 0.01      # right wheel torque - reduced to allow more aggressive turning
 
 # Terminal cost computation
 use_terminal_cost_dare: true
@@ -38,3 +38,6 @@ control_limit_nm: 0.25              # Motor stall torque limit
 # Solver settings
 solver_name: 'osqp'
 warm_start_enabled: true
+
+# Online linearization settings
+online_linearization_enabled: false  # Set to true to enable successive linearization at current state
