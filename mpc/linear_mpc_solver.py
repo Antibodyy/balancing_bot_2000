@@ -25,6 +25,7 @@ from robot_dynamics.parameters import (
     CONTROL_DIMENSION,
     PITCH_INDEX,
     PITCH_RATE_INDEX,
+    VELOCITY_INDEX,
 )
 from robot_dynamics.discretization import DiscreteDynamics
 from mpc.constraints import StateConstraints, InputConstraints
@@ -81,6 +82,7 @@ class LinearMPCSolver:
         warm_start_enabled: bool = True,
         terminal_pitch_limit_rad: Optional[float] = None,
         terminal_pitch_rate_limit_radps: Optional[float] = None,
+        terminal_velocity_limit_mps: Optional[float] = None,
     ) -> None:
         """Initialize the MPC solver.
 
@@ -96,6 +98,7 @@ class LinearMPCSolver:
             warm_start_enabled: Enable warm-starting from previous solution
             terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
             terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
+            terminal_velocity_limit_mps: Terminal velocity constraint (None = no constraint)
         """
         self._prediction_horizon_steps = prediction_horizon_steps
         self._state_cost = state_cost
@@ -107,6 +110,7 @@ class LinearMPCSolver:
         self._warm_start_enabled = warm_start_enabled
         self._terminal_pitch_limit_rad = terminal_pitch_limit_rad
         self._terminal_pitch_rate_limit_radps = terminal_pitch_rate_limit_radps
+        self._terminal_velocity_limit_mps = terminal_velocity_limit_mps
 
         # Store dynamics matrices (will be converted to parameters after Opti creation)
         self._state_matrix = discrete_dynamics.state_matrix_discrete
@@ -210,7 +214,8 @@ class LinearMPCSolver:
 
         # ADDITIONAL terminal constraints at step N (applied on top of state constraints)
         if (self._terminal_pitch_limit_rad is not None or
-            self._terminal_pitch_rate_limit_radps is not None):
+            self._terminal_pitch_rate_limit_radps is not None or
+            self._terminal_velocity_limit_mps is not None):
 
             # Additional constraint: pitch at terminal must satisfy tighter bounds
             # This is IN ADDITION to the regular state constraint already applied above
@@ -233,6 +238,17 @@ class LinearMPCSolver:
                 self._opti.subject_to(
                     self._state_variables[PITCH_RATE_INDEX, horizon]
                     <= self._terminal_pitch_rate_limit_radps
+                )
+
+            # Additional constraint: velocity at terminal must satisfy tighter bounds
+            if self._terminal_velocity_limit_mps is not None:
+                self._opti.subject_to(
+                    self._state_variables[VELOCITY_INDEX, horizon]
+                    >= -self._terminal_velocity_limit_mps
+                )
+                self._opti.subject_to(
+                    self._state_variables[VELOCITY_INDEX, horizon]
+                    <= self._terminal_velocity_limit_mps
                 )
 
         # Control constraints (box constraints)

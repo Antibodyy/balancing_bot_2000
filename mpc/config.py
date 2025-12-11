@@ -41,6 +41,7 @@ class MPCConfig:
         warm_start_enabled: Enable warm-starting from previous solution
         terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
         terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
+        terminal_velocity_limit_mps: Terminal velocity constraint (None = no constraint)
         online_linearization_enabled: If True, re-linearize dynamics at current state each step
     """
 
@@ -70,6 +71,7 @@ class MPCConfig:
     # Terminal state constraints (optional - applied in addition to state constraints at step N)
     terminal_pitch_limit_rad: Optional[float] = None
     terminal_pitch_rate_limit_radps: Optional[float] = None
+    terminal_velocity_limit_mps: Optional[float] = None
 
     # Online linearization (successive linearization at current state)
     online_linearization_enabled: bool = False
@@ -104,6 +106,10 @@ class MPCConfig:
         if self.terminal_pitch_rate_limit_radps is not None:
             validate_non_negative(
                 self.terminal_pitch_rate_limit_radps, 'terminal_pitch_rate_limit_radps'
+            )
+        if self.terminal_velocity_limit_mps is not None:
+            validate_non_negative(
+                self.terminal_velocity_limit_mps, 'terminal_velocity_limit_mps'
             )
 
         # Solver
@@ -144,6 +150,7 @@ class MPCConfig:
             # Terminal constraints (optional, backward compatible)
             terminal_pitch_limit_rad=config.get('terminal_pitch_limit_rad', None),
             terminal_pitch_rate_limit_radps=config.get('terminal_pitch_rate_limit_radps', None),
+            terminal_velocity_limit_mps=config.get('terminal_velocity_limit_mps', None),
             # Online linearization (optional, backward compatible)
             online_linearization_enabled=config.get('online_linearization_enabled', False),
         )

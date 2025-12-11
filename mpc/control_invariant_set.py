@@ -18,6 +18,7 @@ from datetime import datetime
 from robot_dynamics.parameters import (
     PITCH_INDEX,
     PITCH_RATE_INDEX,
+    VELOCITY_INDEX,
     STATE_DIMENSION,
     CONTROL_DIMENSION,
 )
@@ -79,6 +80,11 @@ class ConstraintDebugger:
         # Constrain pitch rate (theta_dot) at index 4
         self.state_lower_bounds_[PITCH_RATE_INDEX] = -self.params_['pitch_rate_limit_radps']
         self.state_upper_bounds_[PITCH_RATE_INDEX] = self.params_['pitch_rate_limit_radps']
+
+        # Constrain velocity (x_dot) at index 3
+        # Use large initial bounds - invariant set algorithm will tighten based on coupling
+        self.state_lower_bounds_[VELOCITY_INDEX] = -5.0  # m/s (initial, algorithm will shrink)
+        self.state_upper_bounds_[VELOCITY_INDEX] = 5.0   # m/s
 
         # Input constraints: [tau_L, tau_R] in N·m
         control_limit_nm = self.params_['control_limit_nm']
@@ -258,9 +264,10 @@ class ConstraintDebugger:
             RuntimeError: If no invariant states found (constraints too tight)
         """
         if reduced_dims is None:
-            # Focus on pitch dynamics for balancing robot
+            # Focus on pitch dynamics AND velocity for balancing robot
             # State vector: [x, theta, psi, x_dot, theta_dot, psi_dot]
-            reduced_dims = [PITCH_INDEX, PITCH_RATE_INDEX]  # [1, 4]
+            # Including velocity captures pitch-velocity coupling
+            reduced_dims = [PITCH_INDEX, PITCH_RATE_INDEX, VELOCITY_INDEX]  # [1, 4, 3] - 3D
 
         num_dims = len(reduced_dims)
         print(f"\nComputing maximal control-invariant set")
@@ -542,10 +549,11 @@ class ConstraintDebugger:
                 'robot_params_path': computation_metadata['robot_params_path'],
                 'mpc_params_path': computation_metadata['mpc_params_path'],
 
-                # Terminal constraint values for pitch dynamics only
+                # Terminal constraint values for pitch dynamics AND velocity
                 # Copy these to mpc_params.yaml
                 'terminal_pitch_limit_rad': float(bounds[PITCH_INDEX, 1]),  # Upper bound (symmetric)
                 'terminal_pitch_rate_limit_radps': float(bounds[PITCH_RATE_INDEX, 1]),
+                'terminal_velocity_limit_mps': float(bounds[VELOCITY_INDEX, 1]),  # Velocity coupling
             }
         }
 

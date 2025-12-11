@@ -34,7 +34,7 @@ import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from robot_dynamics.parameters import RobotParameters, PITCH_INDEX, PITCH_RATE_INDEX
+from robot_dynamics.parameters import RobotParameters, PITCH_INDEX, PITCH_RATE_INDEX, VELOCITY_INDEX
 from robot_dynamics.linearization import linearize_at_equilibrium
 from robot_dynamics.discretization import discretize_linear_dynamics
 from mpc.config import MPCConfig
@@ -153,7 +153,7 @@ def main():
         state_matrix=discrete_dynamics.state_matrix_discrete,
         control_matrix=discrete_dynamics.control_matrix_discrete,
         grid_resolution=grid_resolution,
-        reduced_dims=[PITCH_INDEX, PITCH_RATE_INDEX],
+        # Use default reduced_dims (now includes velocity for 3D analysis)
         max_iterations=max_iterations
     )
 
@@ -170,6 +170,9 @@ def main():
     print(f"\nPitch rate (theta_dot):")
     print(f"  Lower bound: {bounds[PITCH_RATE_INDEX, 0]:.6f} rad/s ({np.rad2deg(bounds[PITCH_RATE_INDEX, 0]):.2f} deg/s)")
     print(f"  Upper bound: {bounds[PITCH_RATE_INDEX, 1]:.6f} rad/s ({np.rad2deg(bounds[PITCH_RATE_INDEX, 1]):.2f} deg/s)")
+    print(f"\nVelocity (x_dot):")
+    print(f"  Lower bound: {bounds[VELOCITY_INDEX, 0]:.6f} m/s")
+    print(f"  Upper bound: {bounds[VELOCITY_INDEX, 1]:.6f} m/s")
     print(f"\nVolume fraction: {invariant_set['volume_fraction']*100:.1f}% of search space")
     print(f"Feasible states: {invariant_set['feasible_states'].shape[0]}")
     print(f"{'='*70}\n")

@@ -21,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
-from simulation import SimulationConfig, MPCSimulation
+from simulation.mpc_simulation import SimulationConfig, MPCSimulation
 from mpc import ReferenceCommand, ReferenceMode, MPCConfig
 from robot_dynamics.parameters import PITCH_INDEX, PITCH_RATE_INDEX, POSITION_INDEX, VELOCITY_INDEX
 
@@ -84,7 +84,8 @@ def run_simulation(terminal_constraints_enabled: bool):
         mpc_config = replace(
             mpc_config,
             terminal_pitch_limit_rad=None,
-            terminal_pitch_rate_limit_radps=None
+            terminal_pitch_rate_limit_radps=None,
+            terminal_velocity_limit_mps=None
         )
         label = "WITHOUT terminal constraints"
     else:
@@ -93,6 +94,7 @@ def run_simulation(terminal_constraints_enabled: bool):
     print(f"\n{label}:")
     print(f"  terminal_pitch_limit_rad = {mpc_config.terminal_pitch_limit_rad}")
     print(f"  terminal_pitch_rate_limit_radps = {mpc_config.terminal_pitch_rate_limit_radps}")
+    print(f"  terminal_velocity_limit_mps = {mpc_config.terminal_velocity_limit_mps}")
 
     # Create simulation with modified config
     # We need to temporarily save modified config
@@ -115,6 +117,7 @@ def run_simulation(terminal_constraints_enabled: bool):
             'warm_start_enabled': mpc_config.warm_start_enabled,
             'terminal_pitch_limit_rad': mpc_config.terminal_pitch_limit_rad,
             'terminal_pitch_rate_limit_radps': mpc_config.terminal_pitch_rate_limit_radps,
+            'terminal_velocity_limit_mps': mpc_config.terminal_velocity_limit_mps,
         }
         yaml.dump(config_dict, f)
         temp_config_path = f.name

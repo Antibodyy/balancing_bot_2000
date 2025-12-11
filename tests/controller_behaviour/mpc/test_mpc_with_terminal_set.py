@@ -78,7 +78,8 @@ def mpc_solver_with_terminal_constraints(simulation_config_paths):
         state_constraints=state_constraints,
         input_constraints=input_constraints,
         terminal_pitch_limit_rad=terminal_pitch_limit_rad,
-        terminal_pitch_rate_limit_radps=terminal_pitch_rate_limit_radps
+        terminal_pitch_rate_limit_radps=terminal_pitch_rate_limit_radps,
+        terminal_velocity_limit_mps=mpc_config.terminal_velocity_limit_mps,
     )
 
     return solver, terminal_pitch_limit_rad, terminal_pitch_rate_limit_radps
@@ -240,7 +241,7 @@ def test_mpc_without_terminal_constraints_for_comparison():
         mpc_config.control_cost_matrix
     )
 
-    # Create solver WITHOUT terminal constraints (both None)
+    # Create solver WITHOUT terminal constraints (all None)
     solver = LinearMPCSolver(
         prediction_horizon_steps=mpc_config.prediction_horizon_steps,
         discrete_dynamics=discrete,
@@ -250,7 +251,8 @@ def test_mpc_without_terminal_constraints_for_comparison():
         state_constraints=state_constraints,
         input_constraints=input_constraints,
         terminal_pitch_limit_rad=None,  # No terminal constraint
-        terminal_pitch_rate_limit_radps=None  # No terminal constraint
+        terminal_pitch_rate_limit_radps=None,  # No terminal constraint
+        terminal_velocity_limit_mps=None,  # No terminal constraint
     )
 
     # Solve with initial disturbance

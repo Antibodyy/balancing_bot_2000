@@ -112,7 +112,7 @@ def create_test_config(test_type: str, args) -> TestConfig:
     elif test_type == 'velocity-tracking':
         # Constant velocity tracking
         velocity = args.velocity if args.velocity is not None else 0.15
-        duration = args.duration if args.duration is not None else 8.0
+        duration = args.duration if args.duration is not None else 8
 
         # Apply challenge mode
         if args.challenge:
@@ -656,15 +656,31 @@ def plot_velocity_only(results: List[HorizonTestResult],
 
     # Plot velocity for each horizon
     for i, result in enumerate(results):
-        if result.success and len(result.state_history) > 0:
+        if len(result.state_history) > 0:
             vel = result.state_history[:, 3]
-            label = f'N={result.horizon_steps:3d} ({result.horizon_seconds:.2f}s, solve: {result.mean_solve_time_ms:.1f}ms)'
-            ax.plot(result.time_s, vel, linewidth=2.5, color=colors[i],
-                   label=label, alpha=0.85)
 
-    # Reference velocity
-    if len(results) > 0 and results[0].success and test_config.velocity > 0:
-        time_ref = results[0].time_s
+            # Different styling for failed vs successful runs
+            if result.success:
+                linestyle = '-'
+                alpha = 0.85
+                linewidth = 2.5
+                status = ''
+            else:
+                linestyle = '--'
+                alpha = 0.6
+                linewidth = 2.0
+                status = ' [FAILED]'
+
+            label = f'N={result.horizon_steps:3d} ({result.horizon_seconds:.2f}s, solve: {result.mean_solve_time_ms:.1f}ms){status}'
+            ax.plot(result.time_s, vel, linewidth=linewidth, color=colors[i],
+                   label=label, alpha=alpha, linestyle=linestyle)
+
+    # Reference velocity (use longest successful run for time reference)
+    successful_results = [r for r in results if r.success and len(r.state_history) > 0]
+    if len(successful_results) > 0 and test_config.velocity > 0:
+        # Use the result with the longest time series
+        ref_result = max(successful_results, key=lambda r: len(r.time_s))
+        time_ref = ref_result.time_s
         vel_ref = np.full_like(time_ref, test_config.velocity)
 
         # For drive-stop, set reference to 0 after transition
@@ -674,6 +690,19 @@ def plot_velocity_only(results: List[HorizonTestResult],
 
         ax.plot(time_ref, vel_ref, 'k--', linewidth=3,
                label='Reference', alpha=0.7, zorder=10)
+    elif len(results) > 0 and test_config.velocity > 0:
+        # If no successful runs, use any result for time reference
+        ref_result = max(results, key=lambda r: len(r.time_s) if len(r.state_history) > 0 else 0)
+        if len(ref_result.time_s) > 0:
+            time_ref = ref_result.time_s
+            vel_ref = np.full_like(time_ref, test_config.velocity)
+
+            if phase_transition is not None:
+                stop_steps = np.where(time_ref >= phase_transition)[0]
+                vel_ref[stop_steps] = 0.0
+
+            ax.plot(time_ref, vel_ref, 'k--', linewidth=3,
+                   label='Reference', alpha=0.7, zorder=10)
 
     # Add phase transition line (for drive-stop test)
     if phase_transition is not None:
@@ -681,22 +710,25 @@ def plot_velocity_only(results: List[HorizonTestResult],
                     label='Mode switch (drive → stop)', zorder=5)
 
     # Add tolerance bands
-    if test_config.velocity > 0:
-        if phase_transition is not None:
-            # Drive phase tolerance
-            ax.fill_between([0, phase_transition],
-                          test_config.velocity - 0.02, test_config.velocity + 0.02,
-                          color='green', alpha=0.15, label='±0.02 m/s tolerance (drive)')
-            # Stop phase tolerance
-            max_time = max(r.time_s[-1] for r in results if r.success)
-            ax.fill_between([phase_transition, max_time], -0.02, 0.02,
-                           color='blue', alpha=0.15, label='±0.02 m/s tolerance (stop)')
-        else:
-            # Constant velocity tracking tolerance
-            max_time = max(r.time_s[-1] for r in results if r.success)
-            ax.fill_between([0, max_time],
-                          test_config.velocity - 0.02, test_config.velocity + 0.02,
-                          color='green', alpha=0.15, label='±0.02 m/s tolerance')
+    if test_config.velocity > 0 and len(results) > 0:
+        # Find max time across all results (successful or not)
+        valid_results = [r for r in results if len(r.state_history) > 0]
+        if len(valid_results) > 0:
+            max_time = max(r.time_s[-1] for r in valid_results)
+
+            if phase_transition is not None:
+                # Drive phase tolerance
+                ax.fill_between([0, phase_transition],
+                              test_config.velocity - 0.02, test_config.velocity + 0.02,
+                              color='green', alpha=0.15, label='±0.02 m/s tolerance (drive)')
+                # Stop phase tolerance
+                ax.fill_between([phase_transition, max_time], -0.02, 0.02,
+                               color='blue', alpha=0.15, label='±0.02 m/s tolerance (stop)')
+            else:
+                # Constant velocity tracking tolerance
+                ax.fill_between([0, max_time],
+                              test_config.velocity - 0.02, test_config.velocity + 0.02,
+                              color='green', alpha=0.15, label='±0.02 m/s tolerance')
 
     # Labels and formatting
     ax.set_xlabel('Time (s)', fontsize=14, fontweight='bold')
@@ -708,15 +740,17 @@ def plot_velocity_only(results: List[HorizonTestResult],
 
     # Add test-specific annotations
     if phase_transition is not None and len(results) > 0:
-        # Drive-stop test: show both phases
-        ax.text(phase_transition/2, ax.get_ylim()[1]*0.95, 'DRIVE PHASE',
-                 ha='center', fontsize=13, fontweight='bold',
-                 bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+        valid_results = [r for r in results if len(r.state_history) > 0]
+        if len(valid_results) > 0:
+            # Drive-stop test: show both phases
+            ax.text(phase_transition/2, ax.get_ylim()[1]*0.95, 'DRIVE PHASE',
+                     ha='center', fontsize=13, fontweight='bold',
+                     bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
 
-        max_time = max(r.time_s[-1] for r in results if r.success)
-        ax.text(phase_transition + (max_time-phase_transition)/2, ax.get_ylim()[1]*0.95, 'STOP PHASE',
-                 ha='center', fontsize=13, fontweight='bold',
-                 bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
+            max_time = max(r.time_s[-1] for r in valid_results)
+            ax.text(phase_transition + (max_time-phase_transition)/2, ax.get_ylim()[1]*0.95, 'STOP PHASE',
+                     ha='center', fontsize=13, fontweight='bold',
+                     bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
 
     plt.tight_layout()
     plt.savefig(f"{save_dir}/velocity_comparison.png", dpi=150, bbox_inches='tight')

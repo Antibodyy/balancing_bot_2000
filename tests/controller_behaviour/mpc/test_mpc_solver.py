@@ -287,6 +287,7 @@ class TestMPCSolverTerminalConstraints:
             input_constraints=input_constraints,
             terminal_pitch_limit_rad=0.0,
             terminal_pitch_rate_limit_radps=0.0,
+            terminal_velocity_limit_mps=0.0,
         )
 
         # Solve from perturbed state
@@ -330,6 +331,7 @@ class TestMPCSolverTerminalConstraints:
             input_constraints=input_constraints,
             terminal_pitch_limit_rad=None,
             terminal_pitch_rate_limit_radps=None,
+            terminal_velocity_limit_mps=None,
         )
 
         # Should solve without error
@@ -365,6 +367,7 @@ class TestMPCSolverTerminalConstraints:
             input_constraints=input_constraints,
             terminal_pitch_limit_rad=0.0,
             terminal_pitch_rate_limit_radps=1.0,
+            terminal_velocity_limit_mps=None,
         )
 
         # Solve from perturbed state

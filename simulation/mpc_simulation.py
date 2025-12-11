@@ -202,13 +202,21 @@ class MPCSimulation:
         # Build cost matrices
         Q = self._mpc_config.state_cost_matrix
         R = self._mpc_config.control_cost_matrix
-        P = compute_terminal_cost_dare(
-            discrete.state_matrix_discrete,
-            discrete.control_matrix_discrete,
-            Q, R,
-        )
-        # Apply terminal cost scaling
-        P = self._mpc_config.terminal_cost_scale * P
+
+        # Terminal cost: respect use_terminal_cost_dare flag
+        if self._mpc_config.use_terminal_cost_dare:
+            # Compute optimal terminal cost via DARE
+            P = compute_terminal_cost_dare(
+                discrete.state_matrix_discrete,
+                discrete.control_matrix_discrete,
+                Q, R,
+            )
+            # Apply terminal cost scaling
+            P = self._mpc_config.terminal_cost_scale * P
+        else:
+            # Use stage cost with scaling (no DARE computation)
+            # This gives a simple finite-horizon MPC without terminal stabilization
+            P = self._mpc_config.terminal_cost_scale * Q
 
         # Create constraints
         state_constraints, input_constraints = create_constraints_from_config(
@@ -228,6 +236,7 @@ class MPCSimulation:
             input_constraints=input_constraints,
             terminal_pitch_limit_rad=self._mpc_config.terminal_pitch_limit_rad,
             terminal_pitch_rate_limit_radps=self._mpc_config.terminal_pitch_rate_limit_radps,
+            terminal_velocity_limit_mps=self._mpc_config.terminal_velocity_limit_mps,
         )
 
         # Create state estimator
