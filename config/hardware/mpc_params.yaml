@@ -36,6 +36,14 @@ yaw_limit_rad: 3.1416               # ±π radians (unrestricted rotation)
 yaw_rate_limit_radps: 5.0           # conservative yaw rate estimate
 
 
+# Terminal state constraints (at step N) - applied in addition to state constraints
+# These values should match the computed control-invariant set from terminal_set.yaml
+# See scripts/compute_terminal_set.py to compute/recompute
+# Set to null to disable terminal constraints
+terminal_pitch_limit_rad: null      # Recommended: copy from terminal_set.yaml
+terminal_pitch_rate_limit_radps: null  # Recommended: copy from terminal_set.yaml
+
+
 # Control constraints
 control_limit_nm: 0.25              # Motor stall torque limit
 voltage_limit_v: 6.0                # Motor voltage limit (hardware max)

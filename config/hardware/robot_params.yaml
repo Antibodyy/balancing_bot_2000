@@ -2,6 +2,11 @@
 # Single source of truth per style_guide.md section 4.4
 # Units specified in comments and parameter names
 
+# WARNING: If you change ANY parameters below, you MUST recompute the terminal
+# control-invariant set using:
+#   python3 scripts/compute_terminal_set.py --config hardware
+# Otherwise, MPC terminal constraints may be invalid!
+
 # Masses (kg)
 body_mass_kg: 0.43        
 wheel_mass_kg: 0.02
