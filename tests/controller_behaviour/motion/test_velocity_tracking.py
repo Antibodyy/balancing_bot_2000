@@ -21,8 +21,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
-from simulation import SimulationConfig, MPCSimulation
-from mpc import ReferenceCommand, ReferenceMode
+from simulation.mpc_simulation import SimulationConfig, MPCSimulation
+from mpc import ReferenceCommand, ReferenceMode, MPCConfig
 from robot_dynamics.parameters import (
     PITCH_INDEX, PITCH_RATE_INDEX,
     POSITION_INDEX, VELOCITY_INDEX,
