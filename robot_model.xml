@@ -8,7 +8,11 @@
   <visual>
     <rgba haze="0.15 0.25 0.35 1"/>
     <quality shadowsize="2048"/>
+    <global fovy="50"/>
   </visual>
+
+  <!-- Default tracking camera for viewer mode -->
+  <statistic center="0 0 0.3" extent="3"/>
 
   <default>
     <geom contype="1" conaffinity="1" condim="3" friction="1.5 0.1 0.1"/>
@@ -48,7 +52,8 @@
       </body>
     </body>
 
-    <camera name="tracking_cam" mode="track" target="robot" pos="-1.5 0 1" xyaxes="0 -1 0 0 0 1"/>
+    <!-- Tracking camera for viewer mode - follows robot from the side -->
+    <camera name="tracking_cam" mode="targetbody" target="robot" pos="0 -2.5 0.6" xyaxes="1 0 0 0 0 1"/>
   </worldbody>
 
   <actuator>

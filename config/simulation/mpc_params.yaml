@@ -2,7 +2,7 @@
 # Single source of truth per style_guide.md section 4.4
 
 # Horizon parameters
-prediction_horizon_steps: 40
+prediction_horizon_steps: 4000
 sampling_period_s: 0.02  
 
 # Cost function weights (diagonal elements)
@@ -13,7 +13,7 @@ state_cost_diagonal:
   - 500   # psi (yaw/heading) - very low, let it drift based on yaw rate
   - 50.0     # dx (forward velocity)
   - 10.0     # dtheta (pitch rate)
-  - 5000.0      # dpsi (yaw rate) - VERY HIGH for circular motion tracking
+  - 50.0      # dpsi (yaw rate) - VERY HIGH for circular motion tracking
 
 # Control: [tau_L, tau_R]
 control_cost_diagonal:
@@ -40,4 +40,4 @@ solver_name: 'osqp'
 warm_start_enabled: true
 
 # Online linearization settings
-online_linearization_enabled: false  # Set to true to enable successive linearization at current state
+online_linearization_enabled: true  # Set to true to enable successive linearization at current state
