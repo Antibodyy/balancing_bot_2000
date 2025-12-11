@@ -5,7 +5,7 @@ See config/mpc_params.yaml for parameter values.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Optional
 
 import numpy as np
 import yaml
@@ -13,6 +13,7 @@ import yaml
 from mpc._internal.validation import (
     validate_positive,
     validate_positive_integer,
+    validate_non_negative,
     validate_state_cost_diagonal,
     validate_control_cost_diagonal,
     validate_solver_name,
@@ -35,8 +36,12 @@ class MPCConfig:
         pitch_rate_limit_radps: Maximum allowed pitch rate |theta_dot|
         control_limit_nm: Maximum allowed control torque |tau|
         use_terminal_cost_dare: If True, compute P via discrete ARE
+        terminal_cost_scale: Scaling factor for terminal cost P
         solver_name: QP solver to use ('osqp' or 'qpoases')
         warm_start_enabled: Enable warm-starting from previous solution
+        terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
+        terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
+        online_linearization_enabled: If True, re-linearize dynamics at current state each step
     """
 
     # Horizon parameters
@@ -56,10 +61,18 @@ class MPCConfig:
 
     # Terminal cost
     use_terminal_cost_dare: bool
+    terminal_cost_scale: float
 
     # Solver settings
     solver_name: str
     warm_start_enabled: bool
+
+    # Terminal state constraints (optional - applied in addition to state constraints at step N)
+    terminal_pitch_limit_rad: Optional[float] = None
+    terminal_pitch_rate_limit_radps: Optional[float] = None
+
+    # Online linearization (successive linearization at current state)
+    online_linearization_enabled: bool = False
 
     def __post_init__(self) -> None:
         """Validate parameters satisfy constraints."""
@@ -79,6 +92,19 @@ class MPCConfig:
         validate_positive(self.pitch_limit_rad, 'pitch_limit_rad')
         validate_positive(self.pitch_rate_limit_radps, 'pitch_rate_limit_radps')
         validate_positive(self.control_limit_nm, 'control_limit_nm')
+
+        # Terminal cost
+        validate_positive(self.terminal_cost_scale, 'terminal_cost_scale')
+
+        # Terminal constraints (optional)
+        if self.terminal_pitch_limit_rad is not None:
+            validate_non_negative(
+                self.terminal_pitch_limit_rad, 'terminal_pitch_limit_rad'
+            )
+        if self.terminal_pitch_rate_limit_radps is not None:
+            validate_non_negative(
+                self.terminal_pitch_rate_limit_radps, 'terminal_pitch_rate_limit_radps'
+            )
 
         # Solver
         validate_solver_name(self.solver_name)
@@ -112,8 +138,14 @@ class MPCConfig:
             pitch_rate_limit_radps=config['pitch_rate_limit_radps'],
             control_limit_nm=config['control_limit_nm'],
             use_terminal_cost_dare=config['use_terminal_cost_dare'],
+            terminal_cost_scale=config.get('terminal_cost_scale', 1.0),
             solver_name=config['solver_name'],
             warm_start_enabled=config['warm_start_enabled'],
+            # Terminal constraints (optional, backward compatible)
+            terminal_pitch_limit_rad=config.get('terminal_pitch_limit_rad', None),
+            terminal_pitch_rate_limit_radps=config.get('terminal_pitch_rate_limit_radps', None),
+            # Online linearization (optional, backward compatible)
+            online_linearization_enabled=config.get('online_linearization_enabled', False),
         )
 
     @property

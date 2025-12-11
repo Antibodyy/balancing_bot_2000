@@ -28,9 +28,10 @@ from robot_dynamics.parameters import (
 class ReferenceMode(Enum):
     """Reference generation mode."""
 
-    BALANCE = "balance"  # Upright stationary
-    VELOCITY = "velocity"  # Track velocity/yaw rate
-    POSITION = "position"  # Track position/heading
+    BALANCE = "balance"     # Upright stationary
+    VELOCITY = "velocity"   # Track velocity/yaw rate
+    POSITION = "position"   # Track position/heading
+    CIRCULAR = "circular"   # Track circular path
 
 
 @dataclass
@@ -43,6 +44,11 @@ class ReferenceCommand:
         yaw_rate_radps: Desired yaw rate (for VELOCITY mode)
         target_position_m: Target position (for POSITION mode)
         target_heading_rad: Target heading (for POSITION mode)
+        radius_m: Circle radius (for CIRCULAR mode)
+        center_x_m: Circle center X coordinate (for CIRCULAR mode)
+        center_y_m: Circle center Y coordinate (for CIRCULAR mode)
+        target_velocity_mps: Desired forward velocity (for CIRCULAR mode)
+        clockwise: Circle direction (for CIRCULAR mode)
     """
 
     mode: ReferenceMode = ReferenceMode.BALANCE
@@ -50,6 +56,11 @@ class ReferenceCommand:
     yaw_rate_radps: float = 0.0
     target_position_m: float = 0.0
     target_heading_rad: float = 0.0
+    radius_m: float = 1.0
+    center_x_m: float = 0.0
+    center_y_m: float = 0.0
+    target_velocity_mps: float = 0.2
+    clockwise: bool = False
 
 
 class ReferenceGenerator:
@@ -107,6 +118,7 @@ class ReferenceGenerator:
             return self.generate_velocity_reference(
                 command.velocity_mps,
                 command.yaw_rate_radps,
+                current_state,
             )
         elif command.mode == ReferenceMode.POSITION:
             if current_state is None:
@@ -118,6 +130,15 @@ class ReferenceGenerator:
                 command.target_position_m,
                 command.target_heading_rad,
             )
+        elif command.mode == ReferenceMode.CIRCULAR:
+            return self.generate_circular_reference(
+                radius_m=command.radius_m,
+                target_velocity_mps=command.target_velocity_mps,
+                center_x_m=command.center_x_m,
+                center_y_m=command.center_y_m,
+                clockwise=command.clockwise,
+                current_state=current_state,
+            )
         else:
             raise ValueError(f"Unknown reference mode: {command.mode}")
 
@@ -125,6 +146,7 @@ class ReferenceGenerator:
         """Generate constant zero reference for balance mode.
 
         The robot should maintain upright posture at rest.
+        All states are zero: position=0, pitch=0, yaw=0, velocity=0, pitch_rate=0, yaw_rate=0
 
         Returns:
             Reference trajectory (N+1, STATE_DIMENSION) of zeros
@@ -136,6 +158,7 @@ class ReferenceGenerator:
         self,
         desired_velocity_mps: float,
         desired_yaw_rate_radps: float,
+        current_state: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Generate velocity tracking reference.
 
@@ -145,6 +168,7 @@ class ReferenceGenerator:
         Args:
             desired_velocity_mps: Desired forward velocity
             desired_yaw_rate_radps: Desired yaw rate
+            current_state: Current state to make reference relative to current position
 
         Returns:
             Reference trajectory (N+1, STATE_DIMENSION)
@@ -152,18 +176,26 @@ class ReferenceGenerator:
         horizon = self._prediction_horizon_steps
         reference = np.zeros((horizon + 1, STATE_DIMENSION))
 
+        # Get current position and yaw (or use 0 if not provided)
+        current_position = 0.0 if current_state is None else current_state[POSITION_INDEX]
+        current_yaw = 0.0 if current_state is None else current_state[YAW_INDEX]
+
+        # Explicitly set pitch to 0 (maintain upright balance)
+        reference[:, PITCH_INDEX] = 0.0
+        reference[:, PITCH_RATE_INDEX] = 0.0
+
         # Set velocity references
         reference[:, VELOCITY_INDEX] = desired_velocity_mps
         reference[:, YAW_RATE_INDEX] = desired_yaw_rate_radps
 
-        # Position and heading evolve based on velocity
+        # Position and heading evolve based on velocity (relative to current state)
         for step_index in range(1, horizon + 1):
             time_elapsed = step_index * self._sampling_period_s
             reference[step_index, POSITION_INDEX] = (
-                desired_velocity_mps * time_elapsed
+                current_position + desired_velocity_mps * time_elapsed
             )
             reference[step_index, YAW_INDEX] = (
-                desired_yaw_rate_radps * time_elapsed
+                current_yaw + desired_yaw_rate_radps * time_elapsed
             )
 
         return reference
@@ -191,6 +223,10 @@ class ReferenceGenerator:
         """
         horizon = self._prediction_horizon_steps
         reference = np.zeros((horizon + 1, STATE_DIMENSION))
+
+        # Explicitly set pitch to 0 (maintain upright balance)
+        reference[:, PITCH_INDEX] = 0.0
+        reference[:, PITCH_RATE_INDEX] = 0.0
 
         current_position = current_state[POSITION_INDEX]
         current_heading = current_state[YAW_INDEX]
@@ -240,6 +276,90 @@ class ReferenceGenerator:
             # Velocity reference (derivative of position)
             if step_index < horizon:
                 reference[step_index, VELOCITY_INDEX] = velocity
+
+        return reference
+
+    def generate_circular_reference(
+        self,
+        radius_m: float,
+        target_velocity_mps: float,
+        center_x_m: float = 0.0,
+        center_y_m: float = 0.0,
+        clockwise: bool = False,
+        current_state: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Generate circular trajectory reference.
+
+        Creates a reference for following a circular path at constant velocity.
+        The robot maintains balance while moving along a circle defined by
+        center position and radius.
+
+        Args:
+            radius_m: Circle radius (must be >= 0.3m for model validity)
+            target_velocity_mps: Desired forward velocity along circle
+            center_x_m: Circle center X coordinate (world frame)
+            center_y_m: Circle center Y coordinate (world frame)
+            clockwise: If True, rotate clockwise; if False, counter-clockwise
+            current_state: Current state to determine starting angle
+
+        Returns:
+            Reference trajectory (N+1, STATE_DIMENSION)
+
+        Raises:
+            ValueError: If radius is too small or velocity is negative
+        """
+        # Validation
+        MIN_RADIUS = 0.3  # meters - based on yaw dynamics limitations
+        if radius_m < MIN_RADIUS:
+            raise ValueError(
+                f"Circle radius must be >= {MIN_RADIUS}m for model validity, "
+                f"got {radius_m}m"
+            )
+        if target_velocity_mps < 0:
+            raise ValueError(
+                f"Velocity must be non-negative, got {target_velocity_mps}"
+            )
+
+        horizon = self._prediction_horizon_steps
+        reference = np.zeros((horizon + 1, STATE_DIMENSION))
+
+        # Compute yaw rate for circular motion: ω = v / r
+        yaw_rate = target_velocity_mps / radius_m
+        if clockwise:
+            yaw_rate = -yaw_rate
+
+        # Determine starting angle on circle
+        if current_state is not None:
+            # Use current yaw as starting angle
+            # This assumes the robot is roughly facing tangent to circle
+            angle_0 = current_state[YAW_INDEX]
+        else:
+            # Start from angle 0 (pointing along +X axis)
+            angle_0 = 0.0
+
+        # Balance references (constant - maintain upright)
+        reference[:, PITCH_INDEX] = 0.0
+        reference[:, PITCH_RATE_INDEX] = 0.0
+
+        # Velocity references (constant)
+        reference[:, VELOCITY_INDEX] = target_velocity_mps
+        reference[:, YAW_RATE_INDEX] = yaw_rate
+
+        # Position and heading evolve along circle
+        for step_index in range(horizon + 1):
+            time_elapsed = step_index * self._sampling_period_s
+
+            # Current angle on circle
+            angle = angle_0 + yaw_rate * time_elapsed
+
+            # Heading follows angle
+            reference[step_index, YAW_INDEX] = angle
+
+            # X position on circle: x = x_c + r*sin(θ)
+            # For clockwise (ω < 0), the sign is handled by angle evolution
+            reference[step_index, POSITION_INDEX] = (
+                center_x_m + radius_m * np.sin(angle)
+            )
 
         return reference
 

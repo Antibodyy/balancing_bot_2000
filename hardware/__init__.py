@@ -2,19 +2,20 @@
 
 This module provides the hardware abstraction layer for deploying the MPC
 controller on the physical robot, including:
-- I2C communication with Arduino
+- Serial communication with Arduino
 - Hardware controller wrapper
 - Configuration loading
 """
 
 from .config_loader import load_hardware_mpc, load_hardware_mpc_with_custom_params
-from .i2c_interface import BalboaI2CInterface
+from .serial_interface import BalboaSerialInterface, RawSensorPacket
 from .hardware_controller import HardwareBalanceController, ControlLoopStats
 
 __all__ = [
     'load_hardware_mpc',
     'load_hardware_mpc_with_custom_params',
-    'BalboaI2CInterface',
+    'BalboaSerialInterface',
+    'RawSensorPacket',
     'HardwareBalanceController',
     'ControlLoopStats',
 ]

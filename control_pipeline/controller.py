@@ -12,7 +12,9 @@ from typing import Optional
 
 import numpy as np
 
-from robot_dynamics.parameters import STATE_DIMENSION, CONTROL_DIMENSION
+from robot_dynamics.parameters import STATE_DIMENSION, CONTROL_DIMENSION, RobotParameters
+from robot_dynamics.linearization import linearize_at_state, build_jacobian_functions
+from robot_dynamics.discretization import discretize_linear_dynamics
 from mpc.linear_mpc_solver import LinearMPCSolver, MPCSolution
 from mpc.reference_generator import ReferenceGenerator, ReferenceCommand
 from state_estimation.complementary_filter import ComplementaryFilter, IMUReading
@@ -85,6 +87,8 @@ class BalanceController:
         sampling_period_s: float,
         wheel_radius_m: float,
         track_width_m: float,
+        robot_params: RobotParameters,
+        online_linearization_enabled: bool = False,
         use_simulation_velocity: bool = False,
     ) -> None:
         """Initialize balance controller.
@@ -96,6 +100,8 @@ class BalanceController:
             sampling_period_s: Control loop period
             wheel_radius_m: Wheel radius for encoder to velocity conversion
             track_width_m: Track width for differential drive kinematics
+            robot_params: Robot parameters for online linearization
+            online_linearization_enabled: If True, re-linearize at current state each step
             use_simulation_velocity: If True, use true ground velocity from simulation
                                      instead of encoder-based estimation (fixes the bug)
         """
@@ -106,6 +112,16 @@ class BalanceController:
         self._wheel_radius_m = wheel_radius_m
         self._track_width_m = track_width_m
         self._use_simulation_velocity = use_simulation_velocity
+
+        # Online linearization
+        self._robot_params = robot_params
+        self._online_linearization_enabled = online_linearization_enabled
+
+        # Cache Jacobian functions for efficient linearization
+        if self._online_linearization_enabled:
+            self._jacobian_functions = build_jacobian_functions(robot_params)
+        else:
+            self._jacobian_functions = None
 
         # Timer for performance monitoring
         self._timer = ControlLoopTimer(deadline_s=sampling_period_s)
@@ -142,13 +158,17 @@ class BalanceController:
         state_estimate = self._estimate_state(sensor_data)
         self._timer.mark_estimation_complete()
 
-        # 2. Generate reference trajectory
+        # 2. Update linearization if enabled
+        if self._online_linearization_enabled:
+            self._update_linearization(state_estimate)
+
+        # 3. Generate reference trajectory
         reference_trajectory = self._reference_generator.generate(
             reference_command, state_estimate
         )
         self._timer.mark_reference_complete()
 
-        # 3. Solve MPC
+        # 4. Solve MPC
         mpc_solution = self._mpc_solver.solve(state_estimate, reference_trajectory)
         self._timer.mark_solve_complete()
 
@@ -166,6 +186,36 @@ class BalanceController:
             timing=timing,
             mpc_solution=mpc_solution,
         )
+
+    def _update_linearization(self, state_estimate: np.ndarray) -> None:
+        """Update MPC linearization based on current state.
+
+        Linearizes dynamics at the current state and updates MPC solver.
+        This is called every control step when online_linearization_enabled=True.
+
+        Args:
+            state_estimate: Current state estimate [x, theta, psi, dx, dtheta, dpsi]
+        """
+        # Linearize at current state (using full current state)
+        # Control is assumed zero at linearization point
+        control_linearization_point = np.zeros(2)
+
+        linearized = linearize_at_state(
+            self._robot_params,
+            state_estimate,
+            control_linearization_point,
+            jacobian_functions=self._jacobian_functions  # Use cached functions
+        )
+
+        # Discretize
+        discrete = discretize_linear_dynamics(
+            linearized.state_matrix,
+            linearized.control_matrix,
+            self._sampling_period_s
+        )
+
+        # Update MPC solver (now fast with parameter-based approach)
+        self._mpc_solver.update_dynamics(discrete)
 
     def _estimate_state(self, sensor_data: SensorData) -> np.ndarray:
         """Estimate full state from sensor data.

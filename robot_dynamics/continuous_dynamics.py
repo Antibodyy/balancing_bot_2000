@@ -140,23 +140,88 @@ def compute_equilibrium_state(
 
     Note:
         For zero velocity on flat ground: theta_eq = 0, tau_eq = 0
-        For zero velocity on slope: theta_eq = -slope_angle
+        For non-zero slope, equilibrium is computed numerically
     """
-    # Equilibrium pitch angle (opposite to slope for static balance)
-    pitch_equilibrium_rad = -params.ground_slope_rad
+    # For flat ground or zero velocity, use simple analytical solution
+    if abs(params.ground_slope_rad) < 1e-6:
+        # Flat ground: equilibrium is upright with zero torque
+        equilibrium_state = np.array([
+            0.0,  # position (arbitrary reference)
+            0.0,  # pitch
+            0.0,  # yaw (arbitrary reference)
+            desired_velocity_mps,
+            0.0,  # pitch rate = 0
+            0.0   # yaw rate = 0
+        ])
+        equilibrium_control = np.zeros(2)
+        return equilibrium_state, equilibrium_control
 
-    # Equilibrium state: zero position and yaw, constant velocity
+    # For slopes, use numerical solver to find equilibrium
+    from scipy.optimize import fsolve
+
+    # Build dynamics function for optimization
+    dynamics_function = build_dynamics_model(params)
+
+    def equilibrium_error(variables):
+        """Error function: should be zero at equilibrium.
+
+        Variables: [pitch, tau] where tau = tau_left = tau_right
+        """
+        pitch = variables[0]
+        tau = variables[1]
+
+        # Build state and control
+        state = np.array([0.0, pitch, 0.0, desired_velocity_mps, 0.0, 0.0])
+        control = np.array([tau, tau])
+
+        # Compute accelerations
+        state_derivative = compute_state_derivative(state, control, params)
+
+        # At equilibrium, accelerations (last 3 components) should be zero
+        accelerations = state_derivative[3:]
+
+        # Return pitch and longitudinal accelerations (yaw is always 0 for straight motion)
+        return [accelerations[0], accelerations[1]]  # [d²x/dt², d²theta/dt²]
+
+    # Initial guess: pitch ≈ -slope, tau from gravity approximation
+    pitch_guess = -params.ground_slope_rad
+    total_mass = params.body_mass_kg + 2 * params.wheel_mass_kg
+    tau_guess = 0.5 * total_mass * params.gravity_mps2 * np.sin(params.ground_slope_rad) * params.wheel_radius_m
+
+    initial_guess = [pitch_guess, tau_guess]
+
+    # Solve for equilibrium
+    try:
+        solution = fsolve(equilibrium_error, initial_guess, full_output=True)
+        variables_opt = solution[0]
+        info = solution[1]
+
+        # Check if solution converged
+        residual = np.max(np.abs(info['fvec']))
+        if residual > 1e-3:
+            # If numerical solution didn't converge well, fall back to analytical approximation
+            print(f"Warning: Equilibrium solver residual {residual:.6f} > 1e-3, using approximation")
+            pitch_eq = pitch_guess
+            tau_eq = tau_guess
+        else:
+            pitch_eq = variables_opt[0]
+            tau_eq = variables_opt[1]
+    except Exception as e:
+        # Fall back to analytical approximation if solver fails
+        print(f"Warning: Equilibrium solver failed ({e}), using approximation")
+        pitch_eq = pitch_guess
+        tau_eq = tau_guess
+
     equilibrium_state = np.array([
         0.0,  # position (arbitrary reference)
-        pitch_equilibrium_rad,
+        pitch_eq,
         0.0,  # yaw (arbitrary reference)
         desired_velocity_mps,
-        0.0,  # pitch rate = 0 at equilibrium
-        0.0   # yaw rate = 0 at equilibrium
+        0.0,  # pitch rate = 0
+        0.0   # yaw rate = 0
     ])
 
-    # For constant velocity, zero torque at equilibrium (simplified model)
-    equilibrium_control = np.zeros(2)
+    equilibrium_control = np.array([tau_eq, tau_eq])
 
     return equilibrium_state, equilibrium_control
 

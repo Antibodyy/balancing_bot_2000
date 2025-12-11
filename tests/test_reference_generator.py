@@ -9,6 +9,8 @@ from robot_dynamics.parameters import (
     PITCH_INDEX,
     YAW_INDEX,
     VELOCITY_INDEX,
+    PITCH_RATE_INDEX,
+    YAW_RATE_INDEX,
 )
 from mpc.reference_generator import (
     ReferenceGenerator,
@@ -224,3 +226,122 @@ class TestReferenceCommand:
         assert command.mode == ReferenceMode.VELOCITY
         assert command.velocity_mps == 0.2
         assert command.yaw_rate_radps == 0.1
+
+
+class TestCircularReference:
+    """Tests for circular reference generation."""
+
+    def test_shape(self, ref_gen):
+        """Test output shape is correct."""
+        reference = ref_gen.generate_circular_reference(
+            radius_m=1.0,
+            target_velocity_mps=0.2,
+        )
+        assert reference.shape == (21, STATE_DIMENSION)
+
+    def test_radius_too_small_raises(self, ref_gen):
+        """Test that small radius raises ValueError."""
+        with pytest.raises(ValueError, match="radius must be >= 0.3"):
+            ref_gen.generate_circular_reference(
+                radius_m=0.1,
+                target_velocity_mps=0.2,
+            )
+
+    def test_negative_velocity_raises(self, ref_gen):
+        """Test that negative velocity raises."""
+        with pytest.raises(ValueError, match="non-negative"):
+            ref_gen.generate_circular_reference(
+                radius_m=1.0,
+                target_velocity_mps=-0.1,
+            )
+
+    def test_velocity_is_constant(self, ref_gen):
+        """Test that velocity reference is constant."""
+        velocity = 0.3
+        reference = ref_gen.generate_circular_reference(
+            radius_m=1.0,
+            target_velocity_mps=velocity,
+        )
+        assert np.allclose(reference[:, VELOCITY_INDEX], velocity)
+
+    def test_yaw_rate_matches_circle_kinematics(self, ref_gen):
+        """Test that yaw rate = v/r."""
+        velocity = 0.2
+        radius = 0.5
+        expected_yaw_rate = velocity / radius  # 0.4 rad/s
+
+        reference = ref_gen.generate_circular_reference(
+            radius_m=radius,
+            target_velocity_mps=velocity,
+        )
+
+        assert np.allclose(reference[:, YAW_RATE_INDEX], expected_yaw_rate)
+
+    def test_clockwise_has_negative_yaw_rate(self, ref_gen):
+        """Test clockwise motion has negative yaw rate."""
+        reference = ref_gen.generate_circular_reference(
+            radius_m=1.0,
+            target_velocity_mps=0.2,
+            clockwise=True,
+        )
+
+        yaw_rate = reference[0, YAW_RATE_INDEX]
+        assert yaw_rate < 0  # Clockwise = negative
+
+    def test_heading_increases_over_horizon(self, ref_gen):
+        """Test that heading increases for counter-clockwise."""
+        reference = ref_gen.generate_circular_reference(
+            radius_m=1.0,
+            target_velocity_mps=0.2,
+            clockwise=False,
+        )
+
+        headings = reference[:, YAW_INDEX]
+        # For CCW, heading should increase monotonically
+        assert np.all(np.diff(headings) >= 0)
+
+    def test_position_follows_sine_curve(self, ref_gen):
+        """Test that X position follows x = x_c + r*sin(ψ)."""
+        radius = 1.0
+        center_x = 2.0
+
+        reference = ref_gen.generate_circular_reference(
+            radius_m=radius,
+            target_velocity_mps=0.2,
+            center_x_m=center_x,
+        )
+
+        # Verify: x[k] = x_c + r * sin(ψ[k])
+        for step in range(len(reference)):
+            expected_x = center_x + radius * np.sin(reference[step, YAW_INDEX])
+            actual_x = reference[step, POSITION_INDEX]
+            assert np.isclose(expected_x, actual_x, atol=1e-6)
+
+    def test_pitch_is_zero(self, ref_gen):
+        """Test balance is maintained (zero pitch)."""
+        reference = ref_gen.generate_circular_reference(
+            radius_m=1.0,
+            target_velocity_mps=0.2,
+        )
+        assert np.allclose(reference[:, PITCH_INDEX], 0)
+        assert np.allclose(reference[:, PITCH_RATE_INDEX], 0)
+
+    def test_via_command(self, ref_gen):
+        """Test generation via ReferenceCommand."""
+        command = ReferenceCommand(
+            mode=ReferenceMode.CIRCULAR,
+            radius_m=0.8,
+            target_velocity_mps=0.25,
+            center_x_m=1.0,
+            center_y_m=0.5,
+            clockwise=False,
+        )
+
+        current_state = np.zeros(STATE_DIMENSION)
+        reference = ref_gen.generate(command, current_state=current_state)
+
+        # Verify it's a valid reference
+        assert reference.shape == (21, STATE_DIMENSION)
+        assert np.allclose(reference[:, VELOCITY_INDEX], 0.25)
+        expected_yaw_rate = 0.25 / 0.8
+        assert np.allclose(reference[:, YAW_RATE_INDEX], expected_yaw_rate)

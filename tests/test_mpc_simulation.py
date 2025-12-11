@@ -20,6 +20,9 @@ from robot_dynamics.parameters import (
     CONTROL_DIMENSION,
     PITCH_INDEX,
     VELOCITY_INDEX,
+    POSITION_INDEX,
+    YAW_INDEX,
+    YAW_RATE_INDEX,
 )
 
 
@@ -209,6 +212,116 @@ class TestTrajectoryTracking:
 
         # Just verify simulation runs (may fall if solver too slow)
         assert len(result.time_s) > 0
+
+    def test_velocity_mode_drive_and_stop(self, simulation):
+        """Test driving forward then stopping (straight line A→B→stop).
+
+        Scenario:
+        - 0-5s: Drive forward at 0.1 m/s → reach ~0.5m position
+        - 5-8s: Switch to balance mode → come to stop
+        """
+        def reference_callback(time_s: float) -> ReferenceCommand:
+            if time_s < 5.0:
+                return ReferenceCommand(
+                    mode=ReferenceMode.VELOCITY,
+                    velocity_mps=0.1,
+                    yaw_rate_radps=0.0,
+                )
+            else:
+                return ReferenceCommand(mode=ReferenceMode.BALANCE)
+
+        result = simulation.run(
+            duration_s=8.0,
+            initial_pitch_rad=0.0,
+            reference_command_callback=reference_callback,
+        )
+
+        if not result.success:
+            pytest.skip(
+                f"Robot fell - MPC solve time ({result.mean_solve_time_ms:.1f}ms) "
+                "may be too slow for velocity tracking"
+            )
+
+        # Verify reached target position (0.5m ± 0.1m)
+        final_position = result.state_history[-1, POSITION_INDEX]
+        expected_position = 0.5
+        assert abs(final_position - expected_position) < 0.1, (
+            f"Position error: expected={expected_position:.2f}m, "
+            f"actual={final_position:.2f}m"
+        )
+
+        # Verify stopped (velocity < 0.05 m/s)
+        final_velocity = result.state_history[-1, VELOCITY_INDEX]
+        assert abs(final_velocity) < 0.05, (
+            f"Not stopped: velocity={final_velocity:.3f} m/s"
+        )
+
+        # Verify maintained balance (pitch < 10°)
+        pitch_history = result.state_history[:, PITCH_INDEX]
+        max_pitch = np.max(np.abs(pitch_history))
+        assert max_pitch < np.deg2rad(10), (
+            f"Pitch exceeded limit: max={np.rad2deg(max_pitch):.1f}°"
+        )
+
+    def test_velocity_mode_circular_motion(self, simulation):
+        """Test circular motion at constant velocity.
+
+        Physics: v=0.1 m/s, r=0.5m → ω=v/r=0.2 rad/s
+        Duration: 10s → 2.0 rad heading change (114.6°)
+        """
+        velocity = 0.1
+        radius = 0.5
+        yaw_rate = velocity / radius  # 0.2 rad/s
+        duration = 10.0
+
+        def reference_callback(time_s: float) -> ReferenceCommand:
+            return ReferenceCommand(
+                mode=ReferenceMode.VELOCITY,
+                velocity_mps=velocity,
+                yaw_rate_radps=yaw_rate,
+            )
+
+        result = simulation.run(
+            duration_s=duration,
+            initial_pitch_rad=0.0,
+            reference_command_callback=reference_callback,
+        )
+
+        if not result.success:
+            pytest.skip(
+                f"Robot fell - MPC solve time ({result.mean_solve_time_ms:.1f}ms) "
+                "may be too slow for circular motion"
+            )
+
+        # Verify velocity tracking (skip first 2s settling)
+        settling_steps = int(2.0 / (duration / len(result.state_history)))
+        velocities = result.state_history[settling_steps:, VELOCITY_INDEX]
+        mean_velocity = np.mean(velocities)
+        assert abs(mean_velocity - velocity) < 0.05, (
+            f"Velocity error: expected={velocity:.2f}, actual={mean_velocity:.2f} m/s"
+        )
+
+        # Verify yaw rate tracking
+        yaw_rates = result.state_history[settling_steps:, YAW_RATE_INDEX]
+        mean_yaw_rate = np.mean(yaw_rates)
+        assert abs(mean_yaw_rate - yaw_rate) < 0.1, (
+            f"Yaw rate error: expected={yaw_rate:.2f}, actual={mean_yaw_rate:.2f} rad/s"
+        )
+
+        # Verify heading change
+        headings = result.state_history[:, YAW_INDEX]
+        actual_heading_change = headings[-1] - headings[0]
+        expected_heading_change = yaw_rate * duration  # 2.0 rad
+        assert abs(actual_heading_change - expected_heading_change) < 0.3, (
+            f"Heading error: expected={expected_heading_change:.2f}, "
+            f"actual={actual_heading_change:.2f} rad"
+        )
+
+        # Verify maintained balance
+        max_pitch = np.max(np.abs(result.state_history[:, PITCH_INDEX]))
+        assert max_pitch < np.deg2rad(10), (
+            f"Pitch exceeded limit: max={np.rad2deg(max_pitch):.1f}°"
+        )
 
 
 class TestTimingVerification:

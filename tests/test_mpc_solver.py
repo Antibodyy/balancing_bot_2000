@@ -9,7 +9,12 @@ from robot_dynamics import (
     discretize_linear_dynamics,
     compute_equilibrium_state,
 )
-from robot_dynamics.parameters import STATE_DIMENSION, CONTROL_DIMENSION
+from robot_dynamics.parameters import (
+    STATE_DIMENSION,
+    CONTROL_DIMENSION,
+    PITCH_INDEX,
+    PITCH_RATE_INDEX,
+)
 from mpc.config import MPCConfig
 from mpc.cost_matrices import (
     build_state_cost_matrix,
@@ -23,13 +28,13 @@ from mpc.linear_mpc_solver import LinearMPCSolver, MPCSolution
 @pytest.fixture
 def robot_params():
     """Load robot parameters."""
-    return RobotParameters.from_yaml('config/robot_params.yaml')
+    return RobotParameters.from_yaml('config/simulation/robot_params.yaml')
 
 
 @pytest.fixture
 def mpc_config():
     """Load MPC configuration."""
-    return MPCConfig.from_yaml('config/mpc_params.yaml')
+    return MPCConfig.from_yaml('config/simulation/mpc_params.yaml')
 
 
 @pytest.fixture
@@ -251,3 +256,138 @@ class TestMPCSolverInputValidation:
 
         with pytest.raises(ValueError, match="current_state must have shape"):
             mpc_solver.solve(current_state, reference)
+
+
+class TestMPCSolverTerminalConstraints:
+    """Tests for MPC solver terminal constraints."""
+
+    def test_terminal_constraints_enabled(self, mpc_config, discrete_dynamics):
+        """Test that terminal constraints are applied when specified."""
+        Q = mpc_config.state_cost_matrix
+        R = mpc_config.control_cost_matrix
+        P = compute_terminal_cost_dare(
+            discrete_dynamics.state_matrix_discrete,
+            discrete_dynamics.control_matrix_discrete,
+            Q, R,
+        )
+        state_constraints, input_constraints = create_constraints_from_config(
+            mpc_config.pitch_limit_rad,
+            mpc_config.pitch_rate_limit_radps,
+            mpc_config.control_limit_nm,
+        )
+
+        # Create solver with terminal constraints
+        solver = LinearMPCSolver(
+            prediction_horizon_steps=mpc_config.prediction_horizon_steps,
+            discrete_dynamics=discrete_dynamics,
+            state_cost=Q,
+            control_cost=R,
+            terminal_cost=P,
+            state_constraints=state_constraints,
+            input_constraints=input_constraints,
+            terminal_pitch_limit_rad=0.0,
+            terminal_pitch_rate_limit_radps=0.0,
+        )
+
+        # Solve from perturbed state
+        current_state = np.zeros(STATE_DIMENSION)
+        current_state[PITCH_INDEX] = 0.1  # 0.1 rad pitch
+        current_state[PITCH_RATE_INDEX] = 0.5  # 0.5 rad/s pitch rate
+        reference = np.zeros(STATE_DIMENSION)
+
+        solution = solver.solve(current_state, reference)
+
+        # Check that terminal state has pitch near zero
+        terminal_pitch = solution.predicted_trajectory[-1, PITCH_INDEX]
+        terminal_pitch_rate = solution.predicted_trajectory[-1, PITCH_RATE_INDEX]
+
+        assert abs(terminal_pitch) < 1e-3, f"Terminal pitch should be near 0, got {terminal_pitch}"
+        assert abs(terminal_pitch_rate) < 1e-3, f"Terminal pitch rate should be near 0, got {terminal_pitch_rate}"
+
+    def test_terminal_constraints_none(self, mpc_config, discrete_dynamics):
+        """Test backward compatibility when terminal constraints are None."""
+        Q = mpc_config.state_cost_matrix
+        R = mpc_config.control_cost_matrix
+        P = compute_terminal_cost_dare(
+            discrete_dynamics.state_matrix_discrete,
+            discrete_dynamics.control_matrix_discrete,
+            Q, R,
+        )
+        state_constraints, input_constraints = create_constraints_from_config(
+            mpc_config.pitch_limit_rad,
+            mpc_config.pitch_rate_limit_radps,
+            mpc_config.control_limit_nm,
+        )
+
+        # Create solver without terminal constraints
+        solver = LinearMPCSolver(
+            prediction_horizon_steps=mpc_config.prediction_horizon_steps,
+            discrete_dynamics=discrete_dynamics,
+            state_cost=Q,
+            control_cost=R,
+            terminal_cost=P,
+            state_constraints=state_constraints,
+            input_constraints=input_constraints,
+            terminal_pitch_limit_rad=None,
+            terminal_pitch_rate_limit_radps=None,
+        )
+
+        # Should solve without error
+        current_state = np.zeros(STATE_DIMENSION)
+        reference = np.zeros(STATE_DIMENSION)
+
+        solution = solver.solve(current_state, reference)
+        assert solution.solver_status == 'optimal'
+
+    def test_terminal_pitch_rate_nonzero(self, mpc_config, discrete_dynamics):
+        """Test terminal constraints with non-zero pitch rate limit."""
+        Q = mpc_config.state_cost_matrix
+        R = mpc_config.control_cost_matrix
+        P = compute_terminal_cost_dare(
+            discrete_dynamics.state_matrix_discrete,
+            discrete_dynamics.control_matrix_discrete,
+            Q, R,
+        )
+        state_constraints, input_constraints = create_constraints_from_config(
+            mpc_config.pitch_limit_rad,
+            mpc_config.pitch_rate_limit_radps,
+            mpc_config.control_limit_nm,
+        )
+
+        # Create solver with terminal pitch=0 but pitch_rate allowed up to 1.0
+        solver = LinearMPCSolver(
+            prediction_horizon_steps=mpc_config.prediction_horizon_steps,
+            discrete_dynamics=discrete_dynamics,
+            state_cost=Q,
+            control_cost=R,
+            terminal_cost=P,
+            state_constraints=state_constraints,
+            input_constraints=input_constraints,
+            terminal_pitch_limit_rad=0.0,
+            terminal_pitch_rate_limit_radps=1.0,
+        )
+
+        # Solve from perturbed state
+        current_state = np.zeros(STATE_DIMENSION)
+        current_state[PITCH_INDEX] = 0.1
+        reference = np.zeros(STATE_DIMENSION)
+
+        solution = solver.solve(current_state, reference)
+
+        # Terminal pitch should be near zero
+        terminal_pitch = solution.predicted_trajectory[-1, PITCH_INDEX]
+        assert abs(terminal_pitch) < 1e-3
+
+        # Terminal pitch rate should respect the limit
+        terminal_pitch_rate = solution.predicted_trajectory[-1, PITCH_RATE_INDEX]
+        assert abs(terminal_pitch_rate) <= 1.0 + 1e-6
+
+    def test_terminal_constraints_from_config(self):
+        """Test that terminal constraints can be loaded from config."""
+        config = MPCConfig.from_yaml('config/simulation/mpc_params.yaml')
+
+        # Check that terminal constraints are loaded
+        assert config.terminal_pitch_limit_rad is not None
+        assert config.terminal_pitch_rate_limit_radps is not None
+        assert config.terminal_pitch_limit_rad == 0.0
+        assert config.terminal_pitch_rate_limit_radps == 0.0

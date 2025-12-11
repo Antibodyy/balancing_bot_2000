@@ -207,6 +207,8 @@ class MPCSimulation:
             discrete.control_matrix_discrete,
             Q, R,
         )
+        # Apply terminal cost scaling
+        P = self._mpc_config.terminal_cost_scale * P
 
         # Create constraints
         state_constraints, input_constraints = create_constraints_from_config(
@@ -224,6 +226,8 @@ class MPCSimulation:
             terminal_cost=P,
             state_constraints=state_constraints,
             input_constraints=input_constraints,
+            terminal_pitch_limit_rad=self._mpc_config.terminal_pitch_limit_rad,
+            terminal_pitch_rate_limit_radps=self._mpc_config.terminal_pitch_rate_limit_radps,
         )
 
         # Create state estimator
@@ -245,6 +249,8 @@ class MPCSimulation:
             sampling_period_s=self._mpc_config.sampling_period_s,
             wheel_radius_m=self._robot_params.wheel_radius_m,
             track_width_m=self._robot_params.track_width_m,
+            robot_params=self._robot_params,
+            online_linearization_enabled=self._mpc_config.online_linearization_enabled,
             use_simulation_velocity=True,  # FIX: Enable corrected velocity in simulation
         )
 
@@ -379,6 +385,7 @@ class MPCSimulation:
         duration_s: Optional[float] = None,
         initial_pitch_rad: float = 0.0,
         reference_command: Optional[ReferenceCommand] = None,
+        reference_command_callback: Optional[Callable[[float], ReferenceCommand]] = None,
         disturbance_callback: Optional[Callable[[float, 'mujoco.MjData'], None]] = None,
     ) -> SimulationResult:
         """Run simulation.
@@ -386,7 +393,11 @@ class MPCSimulation:
         Args:
             duration_s: Simulation duration (uses config default if None)
             initial_pitch_rad: Initial pitch perturbation from equilibrium
-            reference_command: Reference command (uses BALANCE if None)
+            reference_command: Static reference command (uses BALANCE if None)
+                              Ignored if reference_command_callback provided
+            reference_command_callback: Optional callback for time-varying commands
+                                       Called as callback(time_s) -> ReferenceCommand
+                                       Takes precedence over reference_command
             disturbance_callback: Optional callback for applying disturbances
                                   Called as callback(time_s, mujoco_data)
 
@@ -394,7 +405,20 @@ class MPCSimulation:
             SimulationResult with logged data
         """
         duration = duration_s or self._config.duration_s
-        command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
+
+        # Determine command source (callback takes precedence)
+        use_callback = reference_command_callback is not None
+        if use_callback:
+            # Validate callback by test-calling it
+            test_command = reference_command_callback(0.0)
+            if not isinstance(test_command, ReferenceCommand):
+                raise TypeError(
+                    f"reference_command_callback must return ReferenceCommand, "
+                    f"got {type(test_command)}"
+                )
+            static_command = None
+        else:
+            static_command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
 
         # Load model
         self._load_model()
@@ -438,6 +462,12 @@ class MPCSimulation:
 
         for step_idx in range(n_mpc_steps):
             sim_time = step_idx * mpc_period
+
+            # Get reference command for this timestep
+            if use_callback:
+                command = reference_command_callback(sim_time)
+            else:
+                command = static_command
 
             # Apply disturbance if callback provided
             if disturbance_callback is not None:
@@ -544,6 +574,7 @@ class MPCSimulation:
         duration_s: Optional[float] = None,
         initial_pitch_rad: float = 0.0,
         reference_command: Optional[ReferenceCommand] = None,
+        reference_command_callback: Optional[Callable[[float], ReferenceCommand]] = None,
     ) -> SimulationResult:
         """Run simulation with interactive MuJoCo viewer.
 
@@ -555,13 +586,30 @@ class MPCSimulation:
         Args:
             duration_s: IGNORED in viewer mode (kept for API consistency)
             initial_pitch_rad: Initial pitch perturbation from equilibrium
-            reference_command: Reference command (uses BALANCE if None)
+            reference_command: Static reference command (uses BALANCE if None)
+                              Ignored if reference_command_callback provided
+            reference_command_callback: Optional callback for time-varying commands
+                                       Called as callback(time_s) -> ReferenceCommand
+                                       Takes precedence over reference_command
 
         Returns:
             SimulationResult with logged data
         """
         duration = duration_s or self._config.duration_s
-        command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
+
+        # Determine command source (callback takes precedence)
+        use_callback = reference_command_callback is not None
+        if use_callback:
+            # Validate callback by test-calling it
+            test_command = reference_command_callback(0.0)
+            if not isinstance(test_command, ReferenceCommand):
+                raise TypeError(
+                    f"reference_command_callback must return ReferenceCommand, "
+                    f"got {type(test_command)}"
+                )
+            static_command = None
+        else:
+            static_command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
 
         # Load model
         self._load_model()
@@ -609,6 +657,12 @@ class MPCSimulation:
                 if current_sim_time - last_mpc_time >= mpc_period - (mujoco_timestep * 0.5):
                     # Check for duplicate step
                     if len(time_list) == 0 or abs(current_sim_time - time_list[-1]) >= mpc_period * 0.5:
+                        # Get reference command for this timestep
+                        if use_callback:
+                            command = reference_command_callback(current_sim_time)
+                        else:
+                            command = static_command
+
                         # Build sensor data
                         sensor_data = self._build_sensor_data(current_sim_time)
 

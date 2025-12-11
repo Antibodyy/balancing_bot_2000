@@ -117,6 +117,7 @@ class MPCDiagnostics:
         duration_s: float = 2.0,
         initial_pitch_rad: float = 0.05,
         verbose: bool = True,
+        reference_command_callback=None,
     ) -> tuple[SimulationResult, DiagnosticSummary]:
         """Run simulation and compute diagnostic summary.
 
@@ -124,6 +125,7 @@ class MPCDiagnostics:
             duration_s: Simulation duration
             initial_pitch_rad: Initial pitch perturbation
             verbose: Print step-by-step trace
+            reference_command_callback: Optional time-varying reference command callback
 
         Returns:
             Tuple of (SimulationResult, DiagnosticSummary)
@@ -131,6 +133,7 @@ class MPCDiagnostics:
         result = self._simulation.run(
             duration_s=duration_s,
             initial_pitch_rad=initial_pitch_rad,
+            reference_command_callback=reference_command_callback,
         )
 
         summary = self._compute_summary(result)
