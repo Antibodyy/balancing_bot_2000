@@ -27,7 +27,7 @@ from robot_dynamics.parameters import PITCH_INDEX, PITCH_RATE_INDEX, POSITION_IN
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Test terminal constraints')
-parser.add_argument('--velocity', type=float, default=2.2,
+parser.add_argument('--velocity', type=float, default=4,
                     help='Forward velocity in m/s (default: 2.2)')
 parser.add_argument('--distance', type=float, default=10.0,
                     help='Target distance in m (default: 10.0)')
@@ -80,20 +80,15 @@ def run_simulation(terminal_constraints_enabled: bool):
 
     # Create new config with modified terminal constraints
     from dataclasses import replace
-    if terminal_constraints_enabled:
-        mpc_config = replace(
-            mpc_config,
-            terminal_pitch_limit_rad=0.0,
-            terminal_pitch_rate_limit_radps=0.0
-        )
-        label = "WITH terminal constraints"
-    else:
+    if not terminal_constraints_enabled:
         mpc_config = replace(
             mpc_config,
             terminal_pitch_limit_rad=None,
             terminal_pitch_rate_limit_radps=None
         )
         label = "WITHOUT terminal constraints"
+    else:
+        label = "WITH terminal constraints"
 
     print(f"\n{label}:")
     print(f"  terminal_pitch_limit_rad = {mpc_config.terminal_pitch_limit_rad}")

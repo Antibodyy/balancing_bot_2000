@@ -3,11 +3,11 @@ terminal_set:
   algorithm: Fixed-point iteration (backward reachability)
   warning: These bounds were computed offline. If robot parameters (mass, inertia,
     geometry) change, RECOMPUTE using scripts/compute_terminal_set.py
-  computation_date: '2025-12-10 22:52:35'
-  grid_resolution: 30
-  convergence_iterations: 5
-  volume_fraction: 0.9244444444444444
+  computation_date: '2025-12-10 23:40:18'
+  grid_resolution: 40
+  convergence_iterations: 18
+  volume_fraction: 0.13
   robot_params_path: /home/diego/balancing_bot_2000/config/simulation/robot_params.yaml
   mpc_params_path: /home/diego/balancing_bot_2000/config/simulation/mpc_params.yaml
-  terminal_pitch_limit_rad: 0.524
+  terminal_pitch_limit_rad: 0.3358974358974359
   terminal_pitch_rate_limit_radps: 3.51
