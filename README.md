@@ -44,7 +44,7 @@ PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
 PYTHONPATH=. python3 scripts/viewer/view_robot.py
 ```
 
-## Directory Structure
+## Directory Structure (update this!!)
 
 ```
 balancing_bot_2000/

@@ -10,7 +10,7 @@ Linearization point:
     This respects the chosen YAML's `ground_slope_rad`.
 
 Default:
-    Continuous-time LQR (CARE). To compare with MPC's ZOH-discrete model,
+    Continuous-time LQR pip (CARE). To compare with MPC's ZOH-discrete model,
     set MPC_SAMPLING_PERIOD_S to your Ts for discrete-time LQR (DARE).
 """
 
@@ -20,6 +20,9 @@ import os
 import numpy as np
 import scipy.linalg
 import casadi as ca
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Shared model + params with MPC
 from robot_dynamics.parameters import (
