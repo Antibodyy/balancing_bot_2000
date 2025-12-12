@@ -272,6 +272,10 @@ class MPCSimulation:
             )
 
         model_path = Path(self._config.model_path)
+        if not model_path.is_absolute():
+            # Resolve relative paths against repository root (two levels up from this file)
+            repo_root = Path(__file__).resolve().parent.parent
+            model_path = (repo_root / model_path).resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"MuJoCo model not found: {model_path}")
 
