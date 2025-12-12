@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import argparse
@@ -31,7 +31,7 @@ if args.viewer and not MUJOCO_AVAILABLE:
 
 # Configuration
 config = SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',
@@ -187,7 +187,7 @@ else:
             print(f"  ✗ Balance lost (> 10°)")
 
     # Generate plots
-    save_dir = f"debug_output/velocity_drive_stop_{args.velocity}mps_{args.distance}m"
+    save_dir = f"test_and_debug_output/velocity_drive_stop_{args.velocity}mps_{args.distance}m"
     print(f"\n\nGenerating diagnostic plots...")
     diag.plot_all(result, save_dir=save_dir, show=False)
     print(f"Plots saved to: {save_dir}/")

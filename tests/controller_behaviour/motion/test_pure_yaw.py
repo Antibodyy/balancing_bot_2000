@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import numpy as np
@@ -11,7 +11,7 @@ from debug import MPCDiagnostics
 from mpc import ReferenceCommand, ReferenceMode
 
 config = SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',

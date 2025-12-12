@@ -56,7 +56,7 @@ class DiagnosticSummary:
         print(f"  Max pitch rate error: {np.rad2deg(self.max_pitch_rate_error_rad):.3f} deg/s")
 
         print("\nControl:")
-        print(f"  Mean total torque:    {self.mean_total_torque:.4f} N⋅m")
+        print(f"  Mean total torque:    {self.mean_total_torque:.4f} N*m")
         print(f"  Saturation fraction:  {self.saturation_fraction * 100:.1f}%")
 
         print("\nPrediction Accuracy:")
@@ -90,7 +90,7 @@ class MPCDiagnostics:
         )
 
         # Generate plots
-        diag.plot_all(result, save_dir="debug_output/")
+        diag.plot_all(result, save_dir="test_and_debug_output/")
     """
 
     def __init__(self, config: SimulationConfig):
@@ -190,8 +190,8 @@ class MPCDiagnostics:
         print("\n" + "=" * 80)
         print("STEP-BY-STEP TRACE (first {} steps)".format(min(max_steps, len(result.time_s))))
         print("=" * 80)
-        print(f"{'Step':>4} {'Time':>6} {'True θ':>10} {'Est θ':>10} {'τ_L':>8} {'τ_R':>8} {'τ_total':>8} {'Solve':>8}")
-        print(f"{'':>4} {'(s)':>6} {'(deg)':>10} {'(deg)':>10} {'(N⋅m)':>8} {'(N⋅m)':>8} {'(N⋅m)':>8} {'(ms)':>8}")
+        print(f"{'Step':>4} {'Time':>6} {'True_th':>10} {'Est_th':>10} {'tau_L':>8} {'tau_R':>8} {'tau_total':>8} {'Solve':>8}")
+        print(f"{'':>4} {'(s)':>6} {'(deg)':>10} {'(deg)':>10} {'(N*m)':>8} {'(N*m)':>8} {'(N*m)':>8} {'(ms)':>8}")
         print("-" * 80)
 
         for i in range(min(max_steps, len(result.time_s))):

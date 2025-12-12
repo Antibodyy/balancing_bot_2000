@@ -32,13 +32,13 @@ from control_pipeline import (
 @pytest.fixture
 def robot_params():
     """Load robot parameters."""
-    return RobotParameters.from_yaml('config/robot_params.yaml')
+    return RobotParameters.from_yaml('config/simulation/robot_params.yaml')
 
 
 @pytest.fixture
 def mpc_config():
     """Load MPC configuration."""
-    return MPCConfig.from_yaml('config/mpc_params.yaml')
+    return MPCConfig.from_yaml('config/simulation/mpc_params.yaml')
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def controller(robot_params, mpc_config):
     )
 
     # Create state estimator
-    est_config = EstimatorConfig.from_yaml('config/estimator_params.yaml')
+    est_config = EstimatorConfig.from_yaml('config/simulation/estimator_params.yaml')
     state_estimator = ComplementaryFilter(
         time_constant_s=est_config.complementary_filter_time_constant_s,
         sampling_period_s=est_config.sampling_period_s,

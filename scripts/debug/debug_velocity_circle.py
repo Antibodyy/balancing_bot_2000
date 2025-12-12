@@ -37,7 +37,7 @@ if args.viewer and not MUJOCO_AVAILABLE:
 
 # Configuration
 config = SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',
@@ -232,7 +232,7 @@ else:
         print(f"  Approximate traveled: {arc_length:.3f} m")
 
     # Generate plots
-    save_dir = f"debug_output/velocity_circle_{args.velocity}mps_{args.radius}m_{args.circles}circles"
+    save_dir = f"test_and_debug_output/velocity_circle_{args.velocity}mps_{args.radius}m_{args.circles}circles"
     print(f"\n\nGenerating diagnostic plots...")
     diag.plot_all(result, save_dir=save_dir, show=False)
     print(f"Plots saved to: {save_dir}/")

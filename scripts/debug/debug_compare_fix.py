@@ -7,10 +7,10 @@ from robot_dynamics.parameters import PITCH_INDEX, VELOCITY_INDEX
 from mpc import ReferenceCommand, ReferenceMode
 
 config = SimulationConfig(
-    model_path='robot_model.xml',
-    robot_params_path='config/robot_params.yaml',
-    mpc_params_path='config/mpc_params.yaml',
-    estimator_params_path='config/estimator_params.yaml',
+    model_path='Mujoco sim/robot_model.xml',
+    robot_params_path='config/simulation/robot_params.yaml',
+    mpc_params_path='config/simulation/mpc_params.yaml',
+    estimator_params_path='config/simulation/estimator_params.yaml',
 )
 
 initial_pitch = 0.05  # ~3 degrees
@@ -42,7 +42,7 @@ original_estimate = sim_fixed._controller._estimate_state
 def patched_estimate(sensor_data):
     state = original_estimate(sensor_data)
     # Use true MuJoCo velocity instead of encoder-based
-    state[VELOCITY_INDEX] = sim_fixed._data.qvel[sim_fixed.SLIDE_X_JOINT]
+    state[VELOCITY_INDEX] = sim_fixed._data.qvel[sim_fixed.FREE_JOINT_VEL_START]
     return state
 
 sim_fixed._controller._estimate_state = patched_estimate
@@ -132,8 +132,8 @@ ax.set_title('FIXED: Control Response')
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('debug_output/broken_vs_fixed_comparison.png', dpi=150)
-print(f"\n📊 Comparison plot saved to: debug_output/broken_vs_fixed_comparison.png")
+plt.savefig('test_and_debug_output/broken_vs_fixed_comparison.png', dpi=150)
+print(f"\n📊 Comparison plot saved to: test_and_debug_output/broken_vs_fixed_comparison.png")
 
 # Summary statistics
 print("\n" + "="*80)

@@ -35,7 +35,7 @@ PYTHONPATH=. python3 scripts/debug/quick_check.py
 
 ```bash
 # Run simulation with visualization
-PYTHONPATH=. python3 mads.py
+PYTHONPATH=. python3 "Mujoco sim/run_simulation.py"
 
 # Validate dynamics model
 PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
@@ -48,44 +48,47 @@ PYTHONPATH=. python3 scripts/viewer/view_robot.py
 
 ```
 balancing_bot_2000/
-├── README.md
-├── requirements.txt
-├── MUJOCO_LOG.TXT
-├── mads.py
-├── run_robot.py
-├── run_simulation.py
-├── config/                 # Configuration files (YAML)
-│   ├── hardware/
-│   └── simulation/
-├── control_pipeline/       # MPC controller implementation
-├── debug/                  # Diagnostic tools and plotting
-├── debug_output/           # Raw debug output and logged data
-├── docs/                   # Documentation
-│   ├── TESTING_GUIDE.md
-│   ├── dynamics.md
-│   ├── llm.md
-│   ├── requirements.md
-│   └── style_guide.md
-├── firmware/               # Firmware and microcontroller code
-│   └── balboa_interface/
-├── hardware/               # Hardware interface modules and drivers
-│   ├── __init__.py
-│   ├── config_loader.py
-│   ├── hardware_controller.py
-│   ├── i2c_interface.py
-│   └── serial_interface.py
-├── mpc/                    # MPC solver and components
-├── robot_dynamics/         # Dynamics equations and linearization
-├── scripts/                # Utility scripts
-│   ├── debug/
-│   ├── validation/
-│   └── viewer/
-├── simulation/             # MuJoCo simulation and helpers
-├── state_estimation/       # IMU fusion and filters
-├── tests/                  # Test suite
-│   ├── regression/
-│   └── test_*.py
-└── viewer/                 # Lightweight viewer utilities
+??? README.md
+??? requirements.txt
+??? MUJOCO_LOG.TXT
+??? config/                 # Configuration files (YAML)
+?   ??? hardware/
+?   ??? simulation/
+??? control_pipeline/       # MPC controller implementation
+??? debug/                  # Diagnostic tools and plotting
+??? test_and_debug_output/           # Raw debug output and logged data
+??? docs/                   # Documentation
+?   ??? TESTING_GUIDE.md
+?   ??? dynamics.md
+?   ??? llm.md
+?   ??? requirements.md
+?   ??? style_guide.md
+??? firmware/               # Firmware and microcontroller code
+?   ??? balboa_interface/
+??? hardware/               # Hardware interface modules and drivers
+?   ??? run_robot.py
+?   ??? __init__.py
+?   ??? config_loader.py
+?   ??? hardware_controller.py
+?   ??? i2c_interface.py
+?   ??? serial_interface.py
+??? LQR/                    # Legacy LQR controller
+?   ??? LQR.py
+??? mpc/                    # MPC solver and components
+??? robot_dynamics/         # Dynamics equations and linearization
+??? scripts/                # Utility scripts
+?   ??? debug/
+?   ??? validation/
+?   ??? viewer/
+??? simulation/             # MuJoCo simulation and helpers
+??? state_estimation/       # IMU fusion and filters
+??? tests/                  # Test suite
+?   ??? regression/
+?   ??? controller_behaviour/
+??? Mujoco sim/             # MuJoCo models and run_simulation entrypoint
+?   ??? robot_model.xml
+?   ??? run_simulation.py
+??? viewer/                 # Lightweight viewer utilities
 ```
 
 ## Testing

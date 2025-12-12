@@ -68,7 +68,7 @@ def run_simulation(terminal_constraints_enabled: bool):
 
     # Load config
     config = SimulationConfig(
-        model_path='robot_model.xml',
+        model_path='Mujoco sim/robot_model.xml',
         robot_params_path='config/simulation/robot_params.yaml',
         mpc_params_path='config/simulation/mpc_params.yaml',
         estimator_params_path='config/simulation/estimator_params.yaml',
@@ -198,7 +198,7 @@ control_rms_without = np.sqrt(np.mean(result_without.control_history**2))
 print(f"{'RMS control effort (Nm)':<30} {control_rms_with:>19.4f} {control_rms_without:>19.4f} {abs(control_rms_with-control_rms_without):>14.4f}")
 
 # Generate comparison plots
-save_dir = f"debug_output/terminal_constraints_test_{args.velocity}mps_{args.distance}m"
+save_dir = f"test_and_debug_output/terminal_constraints_test_{args.velocity}mps_{args.distance}m"
 os.makedirs(save_dir, exist_ok=True)
 
 print(f"\nGenerating comparison plots...")

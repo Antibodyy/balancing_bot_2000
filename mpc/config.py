@@ -1,7 +1,7 @@
 """MPC configuration parameters.
 
 Single source of truth for MPC controller settings.
-See config/mpc_params.yaml for parameter values.
+See config/simulation/mpc_params.yaml for parameter values.
 """
 
 from dataclasses import dataclass

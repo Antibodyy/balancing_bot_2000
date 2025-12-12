@@ -51,7 +51,7 @@ except ImportError:
 
 # Candidate locations for the robot params YAML
 PARAMS_CANDIDATES = [
-    "config/robot_params.yaml",
+    "config/simulation/robot_params.yaml",
     "config/simulation/robot_params.yaml",
     "config/hardware/robot_params.yaml",
 ]
@@ -75,7 +75,7 @@ def resolve_params_yaml() -> str:
         + "\n".join(f"  - {p}" for p in PARAMS_CANDIDATES)
         + f"\n\nCWD: {os.getcwd()}\n"
         "Fix by either:\n"
-        "  • copying/creating config/robot_params.yaml, or\n"
+        "  • copying/creating config/simulation/robot_params.yaml, or\n"
         "  • placing your file in config/simulation/ or config/hardware/, or\n"
         "  • editing PARAMS_CANDIDATES in this script to the correct path."
     )

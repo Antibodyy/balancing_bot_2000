@@ -51,6 +51,7 @@ from robot_dynamics import (
     discretize_linear_dynamics,
     compute_equilibrium_state,
 )
+from robot_dynamics.orientation import quat_to_yaw
 from state_estimation import EstimatorConfig, ComplementaryFilter
 from control_pipeline import (
     BalanceController,
@@ -74,7 +75,7 @@ class SimulationConfig:
         video_path: Path for video output
     """
 
-    model_path: str = 'robot_model.xml'
+    model_path: str = 'Mujoco sim/robot_model.xml'
     robot_params_path: str = 'config/simulation/robot_params.yaml'
     mpc_params_path: str = 'config/simulation/mpc_params.yaml'
     estimator_params_path: str = 'config/simulation/estimator_params.yaml'
@@ -126,7 +127,7 @@ class MPCSimulation:
     - Timing verification
 
     The simulation uses the robot_dynamics module for linearization,
-    not the dynamics from mads.py.
+    not the legacy LQR script in LQR/LQR.py.
     """
 
     # MuJoCo joint indices (with freejoint)
@@ -272,6 +273,10 @@ class MPCSimulation:
             )
 
         model_path = Path(self._config.model_path)
+        if not model_path.is_absolute():
+            # Resolve relative paths against repository root (two levels up from this file)
+            repo_root = Path(__file__).resolve().parent.parent
+            model_path = (repo_root / model_path).resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"MuJoCo model not found: {model_path}")
 
@@ -303,10 +308,7 @@ class MPCSimulation:
         state[PITCH_INDEX] = pitch_rad + self._ground_slope_rad
 
         # Yaw (rotation about z-axis): arctan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
-        yaw_rad = np.arctan2(
-            2.0 * (qw * qz + qx * qy),
-            1.0 - 2.0 * (qy * qy + qz * qz)
-        )
+        yaw_rad = quat_to_yaw(np.array([qw, qx, qy, qz]))
         state[YAW_INDEX] = yaw_rad
 
         # Velocities (linear and angular from freejoint)
@@ -487,6 +489,10 @@ class MPCSimulation:
 
             # FIX: Provide true ground velocity to controller (for simulation mode)
             self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+            # Provide true heading/yaw rate for simulation to bypass encoder yaw errors
+            state_now = self._extract_state()
+            self._controller._true_heading = state_now[YAW_INDEX]
+            self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
             # Run controller
             output = self._controller.step(sensor_data, command)
@@ -677,6 +683,10 @@ class MPCSimulation:
 
                         # FIX: Provide true ground velocity to controller (for simulation mode)
                         self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+                        # Provide true heading/yaw rate in viewer mode as well
+                        state_now = self._extract_state()
+                        self._controller._true_heading = state_now[YAW_INDEX]
+                        self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
                         # Run controller
                         output = self._controller.step(sensor_data, command)

@@ -8,6 +8,7 @@ Verifies that:
 
 import sys
 from pathlib import Path
+import tempfile
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -36,13 +37,14 @@ for horizon in test_horizons:
     mpc_params['use_terminal_cost_dare'] = False
     mpc_params['terminal_cost_scale'] = 0.001
 
-    temp_path = f'/tmp/verify_h{horizon}.yaml'
+    temp_dir = Path(tempfile.mkdtemp(prefix="verify_horizon_"))
+    temp_path = temp_dir / f'verify_h{horizon}.yaml'
     with open(temp_path, 'w') as f:
         yaml.dump(mpc_params, f)
 
     # Create simulation
     config = SimulationConfig(
-        model_path='robot_model.xml',
+        model_path='Mujoco sim/robot_model.xml',
         robot_params_path='config/simulation/robot_params.yaml',
         mpc_params_path=temp_path,
         estimator_params_path='config/simulation/estimator_params.yaml',

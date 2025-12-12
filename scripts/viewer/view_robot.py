@@ -5,7 +5,7 @@ import numpy as np
 
 def main():
     # Load the MuJoCo model
-    model = mujoco.MjModel.from_xml_path('robot_model.xml')
+    model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
     data = mujoco.MjData(model)
 
     # Set initial pitch angle to vertical (0 degrees)

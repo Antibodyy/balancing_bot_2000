@@ -3,7 +3,7 @@
 import mujoco
 import numpy as np
 
-model = mujoco.MjModel.from_xml_path('robot_model.xml')
+model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
 data = mujoco.MjData(model)
 
 print("="*70)

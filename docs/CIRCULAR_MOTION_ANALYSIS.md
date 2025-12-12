@@ -229,7 +229,7 @@ The system excels at its primary objective (balancing) and forward motion contro
 
 ## Plots Generated
 
-When you run the script, it generates comprehensive diagnostic plots in `debug_output/velocity_circle_<velocity>mps_<radius>m_<circles>circles/`:
+When you run the script, it generates comprehensive diagnostic plots in `test_and_debug_output/velocity_circle_<velocity>mps_<radius>m_<circles>circles/`:
 
 - `velocity_tracking.png` - Forward velocity and yaw rate vs targets
 - `trajectory_2d.png` - Top-down view of actual vs ideal circular path

@@ -224,7 +224,7 @@ output = controller.step(sensor_data, reference_command)
 
 ## Configuration
 
-### MPC Parameters (`config/mpc_params.yaml`)
+### MPC Parameters (`config/simulation/mpc_params.yaml`)
 
 ```yaml
 prediction_horizon_steps: 20
@@ -242,7 +242,7 @@ solver_name: 'osqp'         # Note: Actually uses IPOPT
 warm_start_enabled: true
 ```
 
-### Estimator Parameters (`config/estimator_params.yaml`)
+### Estimator Parameters (`config/simulation/estimator_params.yaml`)
 
 ```yaml
 complementary_filter_time_constant_s: 0.1
@@ -286,7 +286,7 @@ When MuJoCo is installed, the simulation module provides validation:
 from simulation import MPCSimulation, SimulationConfig
 
 sim = MPCSimulation(SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     duration_s=30.0,
 ))
 

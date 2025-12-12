@@ -1,5 +1,13 @@
 """Debug script for external force disturbance analysis."""
 
+import sys
+from pathlib import Path
+
+# Ensure project root and debug package are importable when run directly
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "debug"))
+
 import numpy as np
 import matplotlib.pyplot as plt
 from simulation import SimulationConfig, MPCSimulation
@@ -8,10 +16,10 @@ from mpc import ReferenceCommand, ReferenceMode
 from robot_dynamics.parameters import PITCH_INDEX, VELOCITY_INDEX
 
 config = SimulationConfig(
-    model_path='robot_model.xml',
-    robot_params_path='config/robot_params.yaml',
-    mpc_params_path='config/mpc_params.yaml',
-    estimator_params_path='config/estimator_params.yaml',
+    model_path='Mujoco sim/robot_model.xml',
+    robot_params_path='config/simulation/robot_params.yaml',
+    mpc_params_path='config/simulation/mpc_params.yaml',
+    estimator_params_path='config/simulation/estimator_params.yaml',
 )
 
 # Create simulation and diagnostics
@@ -45,7 +53,8 @@ for force_N in force_magnitudes:
     )
 
     # Analyze using diagnostics plotting
-    save_dir = f"debug_output/force_{force_N:.0f}N"
+    save_dir = Path(f"test_and_debug_output/force_{force_N:.0f}N")
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     from debug.plotting import (
         plot_state_comparison,
@@ -58,7 +67,7 @@ for force_N in force_magnitudes:
         result.state_history,
         result.state_estimate_history,
         title=f"State Response to {force_N:.1f}N Disturbance",
-        save_path=f"{save_dir}/state_response.png",
+        save_path=save_dir / "state_response.png",
     )
 
     plot_control_analysis(
@@ -66,7 +75,7 @@ for force_N in force_magnitudes:
         result.control_history,
         control_limit=0.25,
         title=f"Control Response to {force_N:.1f}N Disturbance",
-        save_path=f"{save_dir}/control_response.png",
+        save_path=save_dir / "control_response.png",
     )
 
     # Custom disturbance analysis plot
@@ -109,7 +118,7 @@ for force_N in force_magnitudes:
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f"{save_dir}/disturbance_timeline.png", dpi=150)
+    plt.savefig(save_dir / "disturbance_timeline.png", dpi=150)
     plt.close()
 
     # Results
