@@ -1,3 +1,10 @@
+""" 
+LQR using non simplified robot dynamics with CasADi and MuJoCo
+First complete controller designed in the project.
+This file is independant and can be run directly.
+"""
+
+
 from cmath import tau
 import casadi as ca
 import numpy as np
@@ -28,18 +35,18 @@ def get_robot_dynamics():
     dq = ca.vertcat(dx, dtheta, dpsi)
     tau = ca.vertcat(tau_L, tau_R)
 
-    M_b = 1.5  # Mass of body [kg]
-    M_w = 0.5 # Mass of wheel [kg]
-    L   = 0.2 # Length to COM [m]
-    R   = 0.05 # Wheel radius [m]
+    M_b = 0.43  # Mass of body [kg]
+    M_w = 0.02 # Mass of wheel [kg]
+    L   = 0.0275 # Length to COM [m]
+    R   = 0.04 # Wheel radius [m]
     g   = 9.81 # Gravity [m/s^2]
-    W   = 0.3  # Track width (distance between wheels in m)
+    W   = 0.1  # Track width (distance between wheels in m)
 
-    I_wy = 0.001 # Wheel inertias
-    I_wz = 0.001 
-    I_bx = 0.05 # Body inertias
-    I_by = 0.05  
-    I_bz = 0.01  
+    I_wy = 0.00025 # Wheel inertias
+    I_wz = 0.000344 
+    I_bx = 0.0212 # Body inertias still have to be accurately defined
+    I_by = 0.0025  
+    I_bz = 0.0025  
 
     M11 = M_b+ M_w + I_wy/(R**2)
     M12 = M_b *L * ca.cos(theta) #also equal to M21
