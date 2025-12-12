@@ -8,10 +8,10 @@ from mpc import ReferenceCommand, ReferenceMode
 from robot_dynamics.parameters import PITCH_INDEX, VELOCITY_INDEX
 
 config = SimulationConfig(
-    model_path='robot_model.xml',
-    robot_params_path='config/robot_params.yaml',
-    mpc_params_path='config/mpc_params.yaml',
-    estimator_params_path='config/estimator_params.yaml',
+    model_path='Mujoco sim/robot_model.xml',
+    robot_params_path='config/simulation/robot_params.yaml',
+    mpc_params_path='config/simulation/mpc_params.yaml',
+    estimator_params_path='config/simulation/estimator_params.yaml',
 )
 
 # Create simulation and diagnostics
@@ -45,7 +45,7 @@ for force_N in force_magnitudes:
     )
 
     # Analyze using diagnostics plotting
-    save_dir = f"debug_output/force_{force_N:.0f}N"
+    save_dir = f"test_and_debug_output/force_{force_N:.0f}N"
 
     from debug.plotting import (
         plot_state_comparison,

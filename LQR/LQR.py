@@ -122,7 +122,9 @@ def controller_callback(model, data):
     data_log['theta_target'].append(theta_eq)
 
 def main():
-    model = mujoco.MjModel.from_xml_path('MEC231A/Final_project/balancing_bot_2000/robot_model.xml')
+# MuJoCo model lives under the reorganized folder (not repo root)
+model_path = Path(__file__).parent.parent / "Mujoco sim" / "robot_model.xml"
+model = mujoco.MjModel.from_xml_path(str(model_path))
     data = mujoco.MjData(model)
     data.qpos[1] = theta_eq
     mujoco.set_mjcb_control(controller_callback)

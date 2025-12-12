@@ -42,7 +42,7 @@ for horizon in test_horizons:
 
     # Create simulation
     config = SimulationConfig(
-        model_path='robot_model.xml',
+        model_path='Mujoco sim/robot_model.xml',
         robot_params_path='config/simulation/robot_params.yaml',
         mpc_params_path=temp_path,
         estimator_params_path='config/simulation/estimator_params.yaml',

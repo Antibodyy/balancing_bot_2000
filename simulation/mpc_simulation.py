@@ -74,7 +74,7 @@ class SimulationConfig:
         video_path: Path for video output
     """
 
-    model_path: str = 'robot_model.xml'
+    model_path: str = 'Mujoco sim/robot_model.xml'
     robot_params_path: str = 'config/simulation/robot_params.yaml'
     mpc_params_path: str = 'config/simulation/mpc_params.yaml'
     estimator_params_path: str = 'config/simulation/estimator_params.yaml'
@@ -126,7 +126,7 @@ class MPCSimulation:
     - Timing verification
 
     The simulation uses the robot_dynamics module for linearization,
-    not the dynamics from mads.py.
+    not the legacy LQR script in LQR/LQR.py.
     """
 
     # MuJoCo joint indices (with freejoint)

@@ -1,7 +1,7 @@
 """State estimator configuration parameters.
 
 Single source of truth for state estimation settings.
-See config/estimator_params.yaml for parameter values.
+See config/simulation/estimator_params.yaml for parameter values.
 """
 
 from dataclasses import dataclass

@@ -11,7 +11,7 @@ import os
 
 # Get repository root
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-model_path = os.path.join(repo_root, 'Aryan', 'Mujoco sim', 'robot_model.xml')
+model_path = os.path.join(repo_root, 'Mujoco sim', 'robot_model.xml')
 model = mujoco.MjModel.from_xml_path(model_path)
 data = mujoco.MjData(model)
 

@@ -71,9 +71,9 @@ temp_dir = tempfile.mkdtemp(prefix="slope_balance_")
 print(f"\nCreating temporary files in: {temp_dir}")
 
 try:
-    # 1. Modify robot_model.xml to add physical slope
-    original_model_path = project_root / 'robot_model.xml'
-    temp_model_path = Path(temp_dir) / 'robot_model.xml'
+    # 1. Modify Mujoco sim/robot_model.xml to add physical slope
+    original_model_path = project_root / 'Mujoco sim/robot_model.xml'
+    temp_model_path = Path(temp_dir) / 'Mujoco sim/robot_model.xml'
 
     print(f"Modifying MuJoCo model to add {args.slope}° physical slope...")
 
@@ -227,7 +227,7 @@ try:
 
         # Generate plots
         slope_str = f"{args.slope:.1f}deg" if args.slope != 0 else "flat"
-        save_dir = f"debug_output/slope_balance_{slope_str}"
+        save_dir = f"test_and_debug_output/slope_balance_{slope_str}"
         if args.initial_pitch != 0:
             save_dir += f"_perturb_{abs(args.initial_pitch):.1f}deg"
         if args.viewer:

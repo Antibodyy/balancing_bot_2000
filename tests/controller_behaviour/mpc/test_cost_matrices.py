@@ -21,7 +21,7 @@ from mpc.cost_matrices import (
 @pytest.fixture
 def robot_params():
     """Load robot parameters."""
-    return RobotParameters.from_yaml('config/robot_params.yaml')
+    return RobotParameters.from_yaml('config/simulation/robot_params.yaml')
 
 
 @pytest.fixture

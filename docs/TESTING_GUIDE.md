@@ -119,7 +119,7 @@ Validates dynamics model matches MuJoCo (requires MuJoCo installed).
 #### quick_check.py
 - **Duration:** 1 second
 - **Use when:** Quick sanity check after code changes
-- **Output:** 4 diagnostic plots in `debug_output/quick_check/`
+- **Output:** 4 diagnostic plots in `test_and_debug_output/quick_check/`
 
 ```bash
 PYTHONPATH=. python3 scripts/debug/quick_check.py
@@ -334,7 +334,7 @@ Outcome:
 - High saturation (>90%)
 - Overshoots equilibrium repeatedly
 
-**Fix:** Reduce Q matrix weights in `config/mpc_params.yaml`
+**Fix:** Reduce Q matrix weights in `config/simulation/mpc_params.yaml`
 
 ### Pattern 2: Model Mismatch
 
@@ -356,7 +356,7 @@ Outcome:
 - Panel 4 in closed_loop_diagnosis shows scatter
 
 **Fix:**
-- Check complementary filter gains in `config/estimator_params.yaml`
+- Check complementary filter gains in `config/simulation/estimator_params.yaml`
 - Verify sensor data is correct
 - Run `python3 -m pytest tests/test_state_estimation.py`
 
@@ -368,7 +368,7 @@ Outcome:
 - Falls in viewer mode but works headless
 
 **Fix:**
-- Reduce horizon in `config/mpc_params.yaml`
+- Reduce horizon in `config/simulation/mpc_params.yaml`
 - Check for warm-start issues
 - Optimize solver settings
 
@@ -391,7 +391,7 @@ Outcome:
    ```
 
 2. **Check diagnostic plots**
-   - Open `debug_output/quick_check/closed_loop_diagnosis.png`
+   - Open `test_and_debug_output/quick_check/closed_loop_diagnosis.png`
    - Verify control direction (Panel 4)
    - Check solve times (Panel 5)
    - Check prediction error (Panel 6)
@@ -449,13 +449,13 @@ python3 -m pytest tests/test_dynamics.py tests/test_linearization.py
 ### Tuning Controller
 1. Run `PYTHONPATH=. python3 scripts/debug/debug_perturbation.py --viewer`
 2. Observe behavior visually
-3. Modify `config/mpc_params.yaml`
+3. Modify `config/simulation/mpc_params.yaml`
 4. Repeat until satisfactory
 5. Run regression tests to verify
 
 ### Investigating Failures
 1. Run `PYTHONPATH=. python3 scripts/debug/quick_check.py`
-2. Check plots in `debug_output/quick_check/`
+2. Check plots in `test_and_debug_output/quick_check/`
 3. Identify failure mode from plots
 4. Run targeted script (velocity_viewer, force_disturbance, etc.)
 5. Fix issue
@@ -517,7 +517,7 @@ debug/
 ├── mpc_diagnostics.py       # MPCDiagnostics class
 └── plotting.py              # Plotting functions
 
-debug_output/               # Generated plots (gitignored)
+test_and_debug_output/               # Generated plots (gitignored)
 └── .gitignore
 ```
 

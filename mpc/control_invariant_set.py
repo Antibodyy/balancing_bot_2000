@@ -518,7 +518,7 @@ class ConstraintDebugger:
                                  computation_metadata: Dict,
                                  iterations: int,
                                  volume_fraction: float,
-                                 output_path: str = "config/terminal_set.yaml") -> None:
+                                 output_path: str = "config/simulation/terminal_set.yaml") -> None:
         """
         Save computed terminal set bounds to YAML configuration.
 
@@ -570,7 +570,7 @@ def main():
     """Example usage of constraint debugger."""
     # Initialize debugger
     debugger = ConstraintDebugger(
-        mpc_params_path="config/mpc_params.yaml"
+        mpc_params_path="config/simulation/mpc_params.yaml"
     )
     
     # Example: Compute invariant set
@@ -594,7 +594,7 @@ def main():
     # Save terminal set configuration
     debugger.save_terminal_set_config(
         bounds=invariant_set['bounds'],
-        output_path="config/control/terminal_set.yaml"
+        output_path="config/simulation/terminal_set.yaml"
     )
     
     # Example: Log constraints during simulation

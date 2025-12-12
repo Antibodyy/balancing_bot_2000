@@ -56,7 +56,7 @@ print("="*80)
 
 # Create simulation configuration
 config = SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',
@@ -136,7 +136,7 @@ if len(result.state_history) > 0:
     print(f"  Max torque: {max_control:.4f} Nm")
 
     # Generate plots
-    save_dir = f"debug_output/velocity_tracking_{args.velocity}mps"
+    save_dir = f"test_and_debug_output/velocity_tracking_{args.velocity}mps"
     if args.viewer:
         save_dir += "_viewer"
     else:

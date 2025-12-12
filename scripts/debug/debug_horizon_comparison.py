@@ -215,7 +215,7 @@ def run_horizon_test(horizon_steps: int,
 
     # Configuration
     config = SimulationConfig(
-        model_path='robot_model.xml',
+        model_path='Mujoco sim/robot_model.xml',
         robot_params_path='config/simulation/robot_params.yaml',
         mpc_params_path=temp_config_path,
         estimator_params_path='config/simulation/estimator_params.yaml',
@@ -867,7 +867,7 @@ if __name__ == "__main__":
     print_summary_table(results, test_config.velocity, test_config.distance)
 
     # Generate comparison plots
-    save_dir = f"debug_output/horizon_comparison_{args.test.replace('-', '_')}"
+    save_dir = f"test_and_debug_output/horizon_comparison_{args.test.replace('-', '_')}"
     print(f"\nGenerating comparison plots...")
     plot_velocity_only(results, test_config, save_dir)
     plot_comparison(results, test_config, save_dir)

@@ -4,10 +4,10 @@ from simulation import SimulationConfig
 from debug import MPCDiagnostics
 
 config = SimulationConfig(
-    model_path='robot_model.xml',
-    robot_params_path='config/robot_params.yaml',
-    mpc_params_path='config/mpc_params.yaml',
-    estimator_params_path='config/estimator_params.yaml',
+    model_path='Mujoco sim/robot_model.xml',
+    robot_params_path='config/simulation/robot_params.yaml',
+    mpc_params_path='config/simulation/mpc_params.yaml',
+    estimator_params_path='config/simulation/estimator_params.yaml',
 )
 
 diag = MPCDiagnostics(config)
@@ -28,5 +28,5 @@ summary.print_summary()
 
 # Generate one comprehensive plot
 print("\nGenerating diagnostic plots...")
-diag.plot_all(result, save_dir="debug_output/quick_check", show=True)
-print("\nPlots saved to debug_output/quick_check/")
+diag.plot_all(result, save_dir="test_and_debug_output/quick_check", show=True)
+print("\nPlots saved to test_and_debug_output/quick_check/")

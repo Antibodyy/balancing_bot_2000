@@ -90,7 +90,7 @@ class MPCDiagnostics:
         )
 
         # Generate plots
-        diag.plot_all(result, save_dir="debug_output/")
+        diag.plot_all(result, save_dir="test_and_debug_output/")
     """
 
     def __init__(self, config: SimulationConfig):

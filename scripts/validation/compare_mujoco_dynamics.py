@@ -5,9 +5,9 @@ import mujoco
 from robot_dynamics import RobotParameters, compute_state_derivative
 
 # Load
-model = mujoco.MjModel.from_xml_path('robot_model.xml')
+model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
 data = mujoco.MjData(model)
-params = RobotParameters.from_yaml('config/robot_params.yaml')
+params = RobotParameters.from_yaml('config/simulation/robot_params.yaml')
 
 print("=" * 70)
 print("MUJOCO vs DYNAMICS MODEL COMPARISON")

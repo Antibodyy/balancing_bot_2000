@@ -20,7 +20,7 @@ if args.viewer and not MUJOCO_AVAILABLE:
 
 # Configuration
 config = SimulationConfig(
-    model_path='robot_model.xml',
+    model_path='Mujoco sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',
@@ -89,7 +89,7 @@ else:
         summary.print_summary()
 
         # Generate plots for this perturbation
-        save_dir = f"debug_output/perturbation_{np.rad2deg(initial_pitch):.1f}deg"
+        save_dir = f"test_and_debug_output/perturbation_{np.rad2deg(initial_pitch):.1f}deg"
         print(f"\nGenerating diagnostic plots...")
         diag.plot_all(result, save_dir=save_dir, show=False)
         print(f"Plots saved to: {save_dir}/")
@@ -111,5 +111,5 @@ else:
             print(f"   Max pitch excursion: {max_pitch:.2f}°")
 
     print("\n" + "="*80)
-    print("Analysis complete! Check debug_output/ for detailed plots.")
+    print("Analysis complete! Check test_and_debug_output/ for detailed plots.")
     print("="*80)
