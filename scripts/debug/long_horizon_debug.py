@@ -2,6 +2,8 @@
 Stress-test very long MPC horizons to observe performance, solve times, and the feasibility limit.
 Stops after the first failure (infeasible solve, crash, or fall).
 
+Beware file takes long to run as it is a lot of simulations with a long horizon each.
+
 Horizon sweep:
     Start at N = 50 and increment by 10 up to 100, then continue stepping by 10
     until the controller fails (infeasible solve, crash, or fall). Ts = 0.02 s.

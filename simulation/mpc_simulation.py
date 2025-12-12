@@ -51,6 +51,7 @@ from robot_dynamics import (
     discretize_linear_dynamics,
     compute_equilibrium_state,
 )
+from robot_dynamics.orientation import quat_to_yaw
 from state_estimation import EstimatorConfig, ComplementaryFilter
 from control_pipeline import (
     BalanceController,
@@ -307,10 +308,7 @@ class MPCSimulation:
         state[PITCH_INDEX] = pitch_rad + self._ground_slope_rad
 
         # Yaw (rotation about z-axis): arctan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
-        yaw_rad = np.arctan2(
-            2.0 * (qw * qz + qx * qy),
-            1.0 - 2.0 * (qy * qy + qz * qz)
-        )
+        yaw_rad = quat_to_yaw(np.array([qw, qx, qy, qz]))
         state[YAW_INDEX] = yaw_rad
 
         # Velocities (linear and angular from freejoint)
@@ -491,6 +489,10 @@ class MPCSimulation:
 
             # FIX: Provide true ground velocity to controller (for simulation mode)
             self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+            # Provide true heading/yaw rate for simulation to bypass encoder yaw errors
+            state_now = self._extract_state()
+            self._controller._true_heading = state_now[YAW_INDEX]
+            self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
             # Run controller
             output = self._controller.step(sensor_data, command)
@@ -681,6 +683,10 @@ class MPCSimulation:
 
                         # FIX: Provide true ground velocity to controller (for simulation mode)
                         self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+                        # Provide true heading/yaw rate in viewer mode as well
+                        state_now = self._extract_state()
+                        self._controller._true_heading = state_now[YAW_INDEX]
+                        self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
                         # Run controller
                         output = self._controller.step(sensor_data, command)

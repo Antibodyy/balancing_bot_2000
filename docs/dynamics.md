@@ -119,3 +119,13 @@ The complete nonlinear dynamic model is described by the following system of equ
 
 3.  **(Yaw Moment Balance)**
     $$\ddot{\psi} = \frac{d}{2r I_z}(\tau_R - \tau_L)$$
+
+## Orientation / Yaw extraction
+
+- MuJoCo freejoint quaternions are ordered `[w, x, y, z]`.
+- Yaw (heading) uses a rotation-matrix path for robustness: see `yaw_from_rotmat` in `robot_dynamics/orientation.py`.
+- Use `robot_dynamics/orientation.py` helpers:
+  - `quat_to_yaw(quat_wxyz)` for yaw
+  - `quat_to_euler_wxyz(quat_wxyz)` for roll, pitch, yaw
+  - `unwrap_angles(series)` before differencing yaw to avoid ±π jumps
+  - `wrap_to_pi(angle)` to normalize a single angle into [-π, π]

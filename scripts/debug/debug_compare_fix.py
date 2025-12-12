@@ -42,7 +42,7 @@ original_estimate = sim_fixed._controller._estimate_state
 def patched_estimate(sensor_data):
     state = original_estimate(sensor_data)
     # Use true MuJoCo velocity instead of encoder-based
-    state[VELOCITY_INDEX] = sim_fixed._data.qvel[sim_fixed.SLIDE_X_JOINT]
+    state[VELOCITY_INDEX] = sim_fixed._data.qvel[sim_fixed.FREE_JOINT_VEL_START]
     return state
 
 sim_fixed._controller._estimate_state = patched_estimate

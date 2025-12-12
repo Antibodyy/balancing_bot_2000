@@ -1,7 +1,22 @@
 """Quick diagnostic check - minimal output."""
 
+import sys
+from pathlib import Path
+
+# Ensure project root and debug are importable
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
+
 from simulation import SimulationConfig
-from debug import MPCDiagnostics
+import importlib.util
+
+# Load MPCDiagnostics explicitly from debug/mpc_diagnostics.py
+mpc_diag_path = (project_root / "debug" / "mpc_diagnostics.py").resolve()
+spec = importlib.util.spec_from_file_location("debug.mpc_diagnostics", mpc_diag_path)
+mpc_diagnostics = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(mpc_diagnostics)
+MPCDiagnostics = mpc_diagnostics.MPCDiagnostics
 
 config = SimulationConfig(
     model_path='Mujoco sim/robot_model.xml',

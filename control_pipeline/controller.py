@@ -90,6 +90,7 @@ class BalanceController:
         robot_params: RobotParameters,
         online_linearization_enabled: bool = False,
         use_simulation_velocity: bool = False,
+        use_simulation_heading: bool = False,
     ) -> None:
         """Initialize balance controller.
 
@@ -112,6 +113,9 @@ class BalanceController:
         self._wheel_radius_m = wheel_radius_m
         self._track_width_m = track_width_m
         self._use_simulation_velocity = use_simulation_velocity
+        self._use_simulation_heading = use_simulation_heading
+        self._true_heading = 0.0
+        self._true_yaw_rate = 0.0
 
         # Online linearization
         self._robot_params = robot_params
@@ -273,13 +277,17 @@ class BalanceController:
                 # TODO: Fix for hardware by compensating for body pitch rate
                 forward_velocity = (wheel_velocity_left + wheel_velocity_right) / 2
 
-            yaw_rate = (
-                (wheel_velocity_right - wheel_velocity_left) / self._track_width_m
-            )
+            if self._use_simulation_heading:
+                yaw_rate = self._true_yaw_rate
+                self._heading_rad = self._true_heading
+            else:
+                yaw_rate = (
+                    (wheel_velocity_right - wheel_velocity_left) / self._track_width_m
+                )
+                self._heading_rad += yaw_rate * timestep_s
 
-            # Integrate position and heading
+            # Integrate position
             self._position_m += forward_velocity * timestep_s
-            self._heading_rad += yaw_rate * timestep_s
         else:
             forward_velocity = 0.0
             yaw_rate = 0.0

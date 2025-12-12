@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Position control example using serial communication.
+"""
+hardware test
+Position control example using serial communication.
 
 Demonstrates using POSITION mode to navigate to specific locations
 via serial interface (USB connection to Arduino).

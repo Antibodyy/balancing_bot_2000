@@ -81,10 +81,7 @@ class ConstraintDebugger:
         self.state_lower_bounds_[PITCH_RATE_INDEX] = -self.params_['pitch_rate_limit_radps']
         self.state_upper_bounds_[PITCH_RATE_INDEX] = self.params_['pitch_rate_limit_radps']
 
-        # Constrain velocity (x_dot) at index 3
-        # Use large initial bounds - invariant set algorithm will tighten based on coupling
-        self.state_lower_bounds_[VELOCITY_INDEX] = -5.0  # m/s (initial, algorithm will shrink)
-        self.state_upper_bounds_[VELOCITY_INDEX] = 5.0   # m/s
+        # Do not constrain velocity by default (unconstrained forward velocity)
 
         # Input constraints: [tau_L, tau_R] in N·m
         control_limit_nm = self.params_['control_limit_nm']
@@ -267,7 +264,7 @@ class ConstraintDebugger:
             # Focus on pitch dynamics AND velocity for balancing robot
             # State vector: [x, theta, psi, x_dot, theta_dot, psi_dot]
             # Including velocity captures pitch-velocity coupling
-            reduced_dims = [PITCH_INDEX, PITCH_RATE_INDEX, VELOCITY_INDEX]  # [1, 4, 3] - 3D
+            reduced_dims = [PITCH_INDEX, PITCH_RATE_INDEX]  # Focus on pitch dynamics only
 
         num_dims = len(reduced_dims)
         print(f"\nComputing maximal control-invariant set")
@@ -553,7 +550,7 @@ class ConstraintDebugger:
                 # Copy these to mpc_params.yaml
                 'terminal_pitch_limit_rad': float(bounds[PITCH_INDEX, 1]),  # Upper bound (symmetric)
                 'terminal_pitch_rate_limit_radps': float(bounds[PITCH_RATE_INDEX, 1]),
-                'terminal_velocity_limit_mps': float(bounds[VELOCITY_INDEX, 1]),  # Velocity coupling
+                # Velocity deliberately not constrained in default setup
             }
         }
 
