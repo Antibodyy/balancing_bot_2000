@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 import yaml
+import random
 
 from mpc import MPCConfig, ReferenceCommand, ReferenceMode
 from robot_dynamics.parameters import PITCH_INDEX, VELOCITY_INDEX
@@ -35,19 +36,34 @@ LINEARIZATION_MODES = {
     "relative": True,
 }
 MODE_LABELS = {
-    "objective": "Objective linearization",
-    "relative": "Relative linearization",
+    "objective": "Objective linearization (fixed A,B)",
+    "relative": "Relative linearization (online A,B updates)",
 }
-WARMUP_STEPS = 3
 SEED = 12345
 TS_MS = 20.0
+USE_VIRTUAL_PHYSICS = True
+TRIM_CUTOFF_S = 0.2
+
+random.seed(SEED)
 
 
 def _make_reference_profile(slope_rad: float):
-    command = ReferenceCommand(mode=ReferenceMode.BALANCE, desired_pitch_rad=-slope_rad)
-
-    def _profile(_: float) -> ReferenceCommand:
-        return command
+    def _profile(time_s: float) -> ReferenceCommand:
+        if time_s < 1.0:
+            return ReferenceCommand(mode=ReferenceMode.BALANCE, desired_pitch_rad=-slope_rad)
+        if time_s < 3.0:
+            return ReferenceCommand(
+                mode=ReferenceMode.VELOCITY,
+                velocity_mps=0.5,
+                desired_pitch_rad=-slope_rad,
+            )
+        if time_s < 4.0:
+            return ReferenceCommand(
+                mode=ReferenceMode.VELOCITY,
+                velocity_mps=-0.3,
+                desired_pitch_rad=-slope_rad,
+            )
+        return ReferenceCommand(mode=ReferenceMode.BALANCE, desired_pitch_rad=-slope_rad)
 
     return _profile
 
@@ -67,7 +83,7 @@ def _write_temp_config(base: MPCConfig, mode_key: str, online: bool) -> str:
         prediction_horizon_steps=60,
         warm_start_enabled=True,
         online_linearization_enabled=online,
-        preserve_warm_start_on_linearization=online,
+        preserve_warm_start_on_linearization=True,
     )
     cfg_dict = asdict(cfg)
     tmp = OUTPUT_DIR / f"mpc_params_{mode_key}.yaml"
@@ -76,14 +92,27 @@ def _write_temp_config(base: MPCConfig, mode_key: str, online: bool) -> str:
     return str(tmp)
 
 
-def _trim(array: np.ndarray) -> np.ndarray:
-    if array.size <= WARMUP_STEPS:
-        return np.array([], dtype=array.dtype)
-    return array[WARMUP_STEPS:]
-
-
 def _desired_velocity_series(time_s: np.ndarray) -> np.ndarray:
-    return np.zeros_like(time_s)
+    velocities = np.zeros_like(time_s)
+    velocities[(time_s >= 1.0) & (time_s < 3.0)] = 0.5
+    velocities[(time_s >= 3.0) & (time_s < 4.0)] = -0.3
+    return velocities
+
+
+def _mask_after_warmup(result: MPCSimulation, drop_infeasible: bool = False) -> np.ndarray:
+    """Return mask excluding the first timestep, early transients, and (optionally) infeasible solves."""
+    idx = np.arange(len(result.time_s))
+    mask = (result.time_s > TRIM_CUTOFF_S) & (idx > 0)
+    if drop_infeasible:
+        mask &= (~result.infeasible_history)
+    return mask
+
+
+def _masked_array(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Apply mask to a 1-D array."""
+    if data.size == 0:
+        return data
+    return data[mask]
 
 
 def _run_case(
@@ -93,6 +122,7 @@ def _run_case(
     mode_key: str,
     online_linearization: bool,
 ) -> Tuple[Dict[str, float], MPCSimulation]:
+    slope_rad = math.radians(slope_deg)
     cfg_path = _write_temp_config(base_cfg, f"{mode_key}_slope_{slope_deg:.1f}", online_linearization)
     sim_cfg = SimulationConfig(
         model_path="mujoco_sim/robot_model.xml",
@@ -101,22 +131,30 @@ def _run_case(
         estimator_params_path="config/simulation/estimator_params.yaml",
         duration_s=6.0,
         render=False,
-        use_virtual_physics=False,
+        use_virtual_physics=USE_VIRTUAL_PHYSICS,
     )
     sim = MPCSimulation(sim_cfg)
-    reference_callback = _make_reference_profile(math.radians(slope_deg))
+    reference_callback = _make_reference_profile(slope_rad)
     result = sim.run(
         duration_s=6.0,
-        initial_pitch_rad=0.12,
+        initial_pitch_rad=-slope_rad,
         reference_command_callback=reference_callback,
     )
 
-    trimmed_qp = _trim(result.qp_solve_time_history) * 1e3
-    trimmed_model = _trim(result.model_update_time_history) * 1e3
-    trimmed_pitch_err = _trim(result.pitch_error_history)
-    trimmed_vel_err = _trim(result.velocity_error_history)
-    trimmed_sat = _trim(result.torque_saturation_history.astype(float))
-    trimmed_infeasible = _trim(result.infeasible_history.astype(float))
+    desired_pitch = np.full_like(result.time_s, -slope_rad)
+    desired_velocity = _desired_velocity_series(result.time_s)
+    pitch_error = result.state_history[:, PITCH_INDEX] - desired_pitch
+    velocity_error = result.state_history[:, VELOCITY_INDEX] - desired_velocity
+
+    qp_mask = _mask_after_warmup(result, drop_infeasible=True)
+    model_mask = _mask_after_warmup(result, drop_infeasible=False)
+
+    trimmed_qp = result.qp_solve_time_history[qp_mask] * 1e3
+    trimmed_model = result.model_update_time_history[model_mask] * 1e3
+    trimmed_pitch_err = pitch_error[model_mask]
+    trimmed_vel_err = velocity_error[model_mask]
+    trimmed_sat = result.torque_saturation_history[model_mask].astype(float)
+    trimmed_infeasible = result.infeasible_history[model_mask].astype(float)
 
     def _safe_stats(arr: np.ndarray, percentile: float = 95.0) -> Tuple[float, float, float]:
         if arr.size == 0:
@@ -149,6 +187,18 @@ def _run_case(
         "torque_saturation_pct": sat_pct,
         "infeasible_pct": infeasible_pct,
     }
+
+    # Attach derived series for downstream plotting/analysis.
+    result.slope_deg = slope_deg
+    result.desired_pitch = desired_pitch
+    result.desired_velocity = desired_velocity
+    result.pitch_error_history = pitch_error
+    result.velocity_error_history = velocity_error
+    result.qp_mask = qp_mask
+    result.model_mask = model_mask
+    result.filtered_qp_ms = np.where(qp_mask, result.qp_solve_time_history * 1e3, np.nan)
+    result.filtered_model_ms = np.where(model_mask, result.model_update_time_history * 1e3, np.nan)
+
     return metrics, result
 
 
@@ -166,9 +216,16 @@ def _plot_timeseries(
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    desired_velocity = _desired_velocity_series(next(iter(results.values())).time_s)
+    sample_result = next(iter(results.values()))
     axes[1].set_title("Forward velocity")
-    axes[1].plot(next(iter(results.values())).time_s, desired_velocity, color="k", linestyle="--", label="Reference")
+    axes[1].plot(
+        sample_result.time_s,
+        sample_result.desired_velocity,
+        color="k",
+        linestyle="--",
+        linewidth=1.5,
+        label="Desired velocity",
+    )
     for mode_key, result in results.items():
         axes[1].plot(result.time_s, result.state_history[:, VELOCITY_INDEX], label=MODE_LABELS[mode_key])
     axes[1].set_ylabel("Velocity (m/s)")
@@ -177,15 +234,15 @@ def _plot_timeseries(
 
     axes[2].set_title("Model update time")
     for mode_key, result in results.items():
-        axes[2].plot(result.time_s, result.model_update_time_history * 1e3, label=MODE_LABELS[mode_key])
+        axes[2].plot(result.time_s, result.filtered_model_ms, label=MODE_LABELS[mode_key])
     axes[2].set_ylabel("ms")
     axes[2].grid(True, alpha=0.3)
     axes[2].legend()
 
     axes[3].set_title("QP solve time")
     for mode_key, result in results.items():
-        axes[3].plot(result.time_s, result.qp_solve_time_history * 1e3, label=MODE_LABELS[mode_key])
-    axes[3].axhline(TS_MS, color="r", linestyle="--", label="Ts = 20 ms")
+        axes[3].plot(result.time_s, result.filtered_qp_ms, label=MODE_LABELS[mode_key])
+    axes[3].axhline(TS_MS, color="r", linestyle="--", label="Deadline (20 ms)")
     axes[3].set_ylabel("ms")
     axes[3].set_xlabel("Time (s)")
     axes[3].grid(True, alpha=0.3)
@@ -194,6 +251,51 @@ def _plot_timeseries(
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_timeseries.png", dpi=150)
     plt.close(fig)
+
+
+def _plot_tracking_overlays(
+    slope_deg: float,
+    results: Dict[str, MPCSimulation],
+) -> None:
+    sample_result = next(iter(results.values()))
+
+    plt.figure(figsize=(9, 4))
+    for mode_key, result in results.items():
+        plt.plot(result.time_s, result.state_history[:, PITCH_INDEX], label=MODE_LABELS[mode_key])
+    plt.plot(
+        sample_result.time_s,
+        sample_result.desired_pitch,
+        "k--",
+        linewidth=1.5,
+        label="Desired pitch",
+    )
+    plt.xlabel("Time (s)")
+    plt.ylabel("Pitch (rad)")
+    plt.title(f"Pitch tracking — slope {slope_deg:.1f}°")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_pitch.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(9, 4))
+    plt.plot(
+        sample_result.time_s,
+        sample_result.desired_velocity,
+        "k--",
+        linewidth=1.5,
+        label="Desired velocity",
+    )
+    for mode_key, result in results.items():
+        plt.plot(result.time_s, result.state_history[:, VELOCITY_INDEX], label=MODE_LABELS[mode_key])
+    plt.xlabel("Time (s)")
+    plt.ylabel("Velocity (m/s)")
+    plt.title(f"Velocity tracking — slope {slope_deg:.1f}°")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_velocity.png", dpi=150)
+    plt.close()
 
 
 def _plot_bar_chart(
@@ -236,7 +338,14 @@ def _plot_summary_figures(
     for mode_key, result in base_results.items():
         label = MODE_LABELS[mode_key]
         plt.plot(result.time_s, result.state_history[:, PITCH_INDEX], label=label)
-    plt.axhline(-math.radians(base_slope), color="k", linestyle="--", linewidth=1, label="Slope reference")
+    sample_result = next(iter(base_results.values()))
+    plt.plot(
+        sample_result.time_s,
+        sample_result.desired_pitch,
+        "k--",
+        linewidth=1.5,
+        label="Desired pitch",
+    )
     plt.xlabel("Time (s)")
     plt.ylabel("Pitch (rad)")
     plt.title(f"Pitch comparison (slope {base_slope:.1f}°)")
@@ -249,8 +358,8 @@ def _plot_summary_figures(
     plt.figure(figsize=(9, 4))
     for mode_key, result in base_results.items():
         label = MODE_LABELS[mode_key]
-        plt.plot(result.time_s, result.qp_solve_time_history * 1e3, label=label)
-    plt.axhline(TS_MS, color="r", linestyle="--", label="Ts = 20 ms")
+        plt.plot(result.time_s, result.filtered_qp_ms, label=label)
+    plt.axhline(TS_MS, color="r", linestyle="--", label="Deadline (20 ms)")
     plt.xlabel("Time (s)")
     plt.ylabel("QP solve (ms)")
     plt.title(f"Solve time comparison (slope {base_slope:.1f}°)")
@@ -301,6 +410,7 @@ def test_objective_vs_relative_linearization():
 
         slope_results = {mode: plot_results[(slope_deg, mode)] for mode in LINEARIZATION_MODES}
         _plot_timeseries(slope_deg, slope_results)
+        _plot_tracking_overlays(slope_deg, slope_results)
         _plot_bar_chart(slope_deg, metrics_by_slope[slope_deg])
     _plot_summary_figures(plot_results, metrics_by_slope)
 
