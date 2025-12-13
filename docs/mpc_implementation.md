@@ -290,7 +290,7 @@ When MuJoCo is installed, the simulation module provides validation:
 from simulation import MPCSimulation, SimulationConfig
 
 sim = MPCSimulation(SimulationConfig(
-    model_path='Mujoco sim/robot_model.xml',
+    model_path='mujoco_sim/robot_model.xml',
     duration_s=30.0,
 ))
 

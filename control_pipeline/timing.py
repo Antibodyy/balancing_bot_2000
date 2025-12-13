@@ -34,12 +34,14 @@ class IterationTiming:
 
     Attributes:
         estimation_time_s: Time for state estimation
+        model_update_time_s: Time for linearization/discretization updates
         reference_time_s: Time for reference generation
         solve_time_s: Time for MPC solve
         total_time_s: Total iteration time
     """
 
     estimation_time_s: float = 0.0
+    model_update_time_s: float = 0.0
     reference_time_s: float = 0.0
     solve_time_s: float = 0.0
     total_time_s: float = 0.0
@@ -81,6 +83,8 @@ class ControlLoopTimer:
         self._estimation_end_time: Optional[float] = None
         self._reference_end_time: Optional[float] = None
         self._solve_end_time: Optional[float] = None
+        self._model_update_start_time: Optional[float] = None
+        self._model_update_end_time: Optional[float] = None
 
         # History for statistics
         self._timing_history: List[IterationTiming] = []
@@ -92,6 +96,8 @@ class ControlLoopTimer:
         self._estimation_end_time = None
         self._reference_end_time = None
         self._solve_end_time = None
+        self._model_update_start_time = None
+        self._model_update_end_time = None
 
     def mark_estimation_complete(self) -> None:
         """Mark end of state estimation phase."""
@@ -100,6 +106,14 @@ class ControlLoopTimer:
     def mark_reference_complete(self) -> None:
         """Mark end of reference generation phase."""
         self._reference_end_time = time.perf_counter()
+
+    def start_model_update(self) -> None:
+        """Mark beginning of model update (linearization/discretization) phase."""
+        self._model_update_start_time = time.perf_counter()
+
+    def mark_model_update_complete(self) -> None:
+        """Mark completion of model update phase."""
+        self._model_update_end_time = time.perf_counter()
 
     def mark_solve_complete(self) -> None:
         """Mark end of MPC solve phase."""
@@ -127,6 +141,13 @@ class ControlLoopTimer:
         if self._reference_end_time is not None and self._estimation_end_time is not None:
             timing.reference_time_s = (
                 self._reference_end_time - self._estimation_end_time
+            )
+        if (
+            self._model_update_start_time is not None
+            and self._model_update_end_time is not None
+        ):
+            timing.model_update_time_s = (
+                self._model_update_end_time - self._model_update_start_time
             )
 
         if self._solve_end_time is not None and self._reference_end_time is not None:

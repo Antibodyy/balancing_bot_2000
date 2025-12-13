@@ -3,7 +3,7 @@
 import mujoco
 import numpy as np
 
-model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
+model = mujoco.MjModel.from_xml_path('mujoco_sim/robot_model.xml')
 
 # Get body index
 robot_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'robot')

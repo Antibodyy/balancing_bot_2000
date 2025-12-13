@@ -20,7 +20,7 @@ if args.viewer and not MUJOCO_AVAILABLE:
 
 # Configuration
 config = SimulationConfig(
-    model_path='Mujoco sim/robot_model.xml',
+    model_path='mujoco_sim/robot_model.xml',
     robot_params_path='config/simulation/robot_params.yaml',
     mpc_params_path='config/simulation/mpc_params.yaml',
     estimator_params_path='config/simulation/estimator_params.yaml',

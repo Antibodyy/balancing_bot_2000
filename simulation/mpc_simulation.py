@@ -82,7 +82,7 @@ class SimulationConfig:
         video_path: Path for video output
     """
 
-    model_path: str = 'Mujoco sim/robot_model.xml'
+    model_path: str = 'mujoco_sim/robot_model.xml'
     robot_params_path: str = 'config/simulation/robot_params.yaml'
     mpc_params_path: str = 'config/simulation/mpc_params.yaml'
     estimator_params_path: str = 'config/simulation/estimator_params.yaml'
@@ -102,12 +102,18 @@ class SimulationResult:
         state_history: State trajectory (N_steps, STATE_DIMENSION)
         control_history: Control trajectory (N_steps, CONTROL_DIMENSION)
         state_estimate_history: Estimated states (N_steps, STATE_DIMENSION)
-        solve_time_history: MPC solve times (N_steps,)
+        qp_solve_time_history: MPC solve times (N_steps,)
+        model_update_time_history: Linearization/discretization times (N_steps,)
+        iteration_history: IPOPT iteration counts per MPC solve (N_steps,)
         reference_history: Reference trajectories (N_steps, horizon+1, STATE_DIMENSION)
+        pitch_error_history: Pitch error relative to slope
+        velocity_error_history: Velocity tracking error
+        torque_saturation_history: Boolean flags for torque saturation
+        infeasible_history: Boolean flags for solver infeasibility
         success: Whether simulation completed without falling
         total_duration_s: Total wall-clock time for simulation
-        mean_solve_time_ms: Mean MPC solve time in milliseconds
-        max_solve_time_ms: Maximum MPC solve time in milliseconds
+        mean_qp_solve_time_ms: Mean MPC solve time in milliseconds
+        max_qp_solve_time_ms: Maximum MPC solve time in milliseconds
         deadline_violations: Number of times solve exceeded deadline
     """
 
@@ -115,13 +121,34 @@ class SimulationResult:
     state_history: np.ndarray
     control_history: np.ndarray
     state_estimate_history: np.ndarray
-    solve_time_history: np.ndarray
+    qp_solve_time_history: np.ndarray
+    model_update_time_history: np.ndarray
+    iteration_history: np.ndarray
     reference_history: List[np.ndarray] = field(default_factory=list)
+    pitch_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    velocity_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    torque_saturation_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    infeasible_history: np.ndarray = field(default_factory=lambda: np.array([]))
     success: bool = True
     total_duration_s: float = 0.0
-    mean_solve_time_ms: float = 0.0
-    max_solve_time_ms: float = 0.0
+    mean_qp_solve_time_ms: float = 0.0
+    max_qp_solve_time_ms: float = 0.0
     deadline_violations: int = 0
+
+    @property
+    def solve_time_history(self) -> np.ndarray:
+        """Backward-compatible access to QP solve history."""
+        return self.qp_solve_time_history
+
+    @property
+    def mean_solve_time_ms(self) -> float:
+        """Backward-compatible access to mean QP solve time."""
+        return self.mean_qp_solve_time_ms
+
+    @property
+    def max_solve_time_ms(self) -> float:
+        """Backward-compatible access to max QP solve time."""
+        return self.max_qp_solve_time_ms
 
 
 class MPCSimulation:
@@ -286,6 +313,7 @@ class MPCSimulation:
             terminal_pitch_limit_rad=self._mpc_config.terminal_pitch_limit_rad,
             terminal_pitch_rate_limit_radps=self._mpc_config.terminal_pitch_rate_limit_radps,
             terminal_velocity_limit_mps=self._mpc_config.terminal_velocity_limit_mps,
+            preserve_warm_start_on_dynamics_update=self._mpc_config.preserve_warm_start_on_linearization,
         )
 
         # Create state estimator
@@ -662,12 +690,20 @@ class MPCSimulation:
         state_history = np.zeros((n_mpc_steps, STATE_DIMENSION))
         control_history = np.zeros((n_mpc_steps, CONTROL_DIMENSION))
         state_estimate_history = np.zeros((n_mpc_steps, STATE_DIMENSION))
-        solve_time_history = np.zeros(n_mpc_steps)
+        qp_solve_time_history = np.zeros(n_mpc_steps)
+        model_update_time_history = np.zeros(n_mpc_steps)
+        iteration_history = np.zeros(n_mpc_steps)
+        pitch_error_history = np.zeros(n_mpc_steps)
+        velocity_error_history = np.zeros(n_mpc_steps)
+        torque_saturation_history = np.zeros(n_mpc_steps, dtype=bool)
+        infeasible_history = np.zeros(n_mpc_steps, dtype=bool)
         reference_history = []
 
         # Tracking
         deadline_violations = 0
         success = True
+        theta_ref = -self._ground_slope_rad
+        control_limit = self._mpc_config.control_limit_nm
 
         # Run simulation
         wall_start = time.perf_counter()
@@ -710,10 +746,27 @@ class MPCSimulation:
                 output.torque_left_nm, output.torque_right_nm
             ])
             state_estimate_history[step_idx] = output.state_estimate
-            solve_time_history[step_idx] = output.mpc_solution.solve_time_s
+            qp_solve_time_history[step_idx] = output.timing.solve_time_s
+            model_update_time_history[step_idx] = output.timing.model_update_time_s
+            iteration_history[step_idx] = output.mpc_solution.solver_iterations
             reference_history.append(
                 output.mpc_solution.predicted_trajectory.copy()
             )
+            pitch_error_history[step_idx] = (
+                state_history[step_idx, PITCH_INDEX] - theta_ref
+            )
+            desired_velocity = 0.0
+            if command.mode == ReferenceMode.VELOCITY:
+                desired_velocity = command.velocity_mps
+            velocity_error_history[step_idx] = (
+                state_history[step_idx, VELOCITY_INDEX] - desired_velocity
+            )
+            torque_saturation_history[step_idx] = (
+                abs(output.torque_left_nm) >= control_limit - 1e-6
+                or abs(output.torque_right_nm) >= control_limit - 1e-6
+            )
+            status = (output.mpc_solution.solver_status or "").lower()
+            infeasible_history[step_idx] = status != 'optimal'
 
             # Check deadline violation
             if output.timing.total_time_s > mpc_period:
@@ -741,7 +794,13 @@ class MPCSimulation:
                 state_history = state_history[:step_idx + 1]
                 control_history = control_history[:step_idx + 1]
                 state_estimate_history = state_estimate_history[:step_idx + 1]
-                solve_time_history = solve_time_history[:step_idx + 1]
+                qp_solve_time_history = qp_solve_time_history[:step_idx + 1]
+                model_update_time_history = model_update_time_history[:step_idx + 1]
+                iteration_history = iteration_history[:step_idx + 1]
+                pitch_error_history = pitch_error_history[:step_idx + 1]
+                velocity_error_history = velocity_error_history[:step_idx + 1]
+                torque_saturation_history = torque_saturation_history[:step_idx + 1]
+                infeasible_history = infeasible_history[:step_idx + 1]
                 break
 
         wall_duration = time.perf_counter() - wall_start
@@ -751,12 +810,18 @@ class MPCSimulation:
             state_history=state_history,
             control_history=control_history,
             state_estimate_history=state_estimate_history,
-            solve_time_history=solve_time_history,
+            qp_solve_time_history=qp_solve_time_history,
+            model_update_time_history=model_update_time_history,
+            iteration_history=iteration_history,
             reference_history=reference_history,
+            pitch_error_history=pitch_error_history,
+            velocity_error_history=velocity_error_history,
+            torque_saturation_history=torque_saturation_history,
+            infeasible_history=infeasible_history,
             success=success,
             total_duration_s=wall_duration,
-            mean_solve_time_ms=np.mean(solve_time_history) * 1000,
-            max_solve_time_ms=np.max(solve_time_history) * 1000,
+            mean_qp_solve_time_ms=np.mean(qp_solve_time_history) * 1000,
+            max_qp_solve_time_ms=np.max(qp_solve_time_history) * 1000,
             deadline_violations=deadline_violations,
         )
 
@@ -863,8 +928,16 @@ class MPCSimulation:
         state_list = []
         control_list = []
         estimate_list = []
-        solve_time_list = []
+        qp_time_list = []
+        model_update_time_list = []
         reference_list = []
+        iteration_list = []
+        pitch_error_list = []
+        velocity_error_list = []
+        torque_saturation_list = []
+        infeasible_list = []
+        theta_ref = -self._ground_slope_rad
+        control_limit = self._mpc_config.control_limit_nm
 
         mpc_period = self._mpc_config.sampling_period_s
         mujoco_timestep = self._model.opt.timestep
@@ -912,8 +985,21 @@ class MPCSimulation:
                         state_list.append(self._extract_state())
                         control_list.append([output.torque_left_nm, output.torque_right_nm])
                         estimate_list.append(output.state_estimate.copy())
-                        solve_time_list.append(output.mpc_solution.solve_time_s)
+                        qp_time_list.append(output.timing.solve_time_s)
+                        model_update_time_list.append(output.timing.model_update_time_s)
                         reference_list.append(output.mpc_solution.predicted_trajectory.copy())
+                        iteration_list.append(output.mpc_solution.solver_iterations)
+                        pitch_error_list.append(state_list[-1][PITCH_INDEX] - theta_ref)
+                        desired_velocity = 0.0
+                        if command.mode == ReferenceMode.VELOCITY:
+                            desired_velocity = command.velocity_mps
+                        velocity_error_list.append(state_list[-1][VELOCITY_INDEX] - desired_velocity)
+                        torque_saturation_list.append(
+                            abs(output.torque_left_nm) >= control_limit - 1e-6
+                            or abs(output.torque_right_nm) >= control_limit - 1e-6
+                        )
+                        status = (output.mpc_solution.solver_status or "").lower()
+                        infeasible_list.append(status != 'optimal')
 
                         # Check deadline
                         if output.timing.total_time_s > mpc_period:
@@ -941,19 +1027,31 @@ class MPCSimulation:
         state_history = np.array(state_list)
         control_history = np.array(control_list)
         state_estimate_history = np.array(estimate_list)
-        solve_time_history = np.array(solve_time_list)
+        qp_solve_time_history = np.array(qp_time_list)
+        model_update_time_history = np.array(model_update_time_list)
+        iteration_history = np.array(iteration_list)
+        pitch_error_history = np.array(pitch_error_list)
+        velocity_error_history = np.array(velocity_error_list)
+        torque_saturation_history = np.array(torque_saturation_list, dtype=bool)
+        infeasible_history = np.array(infeasible_list, dtype=bool)
 
         return SimulationResult(
             time_s=time_s,
             state_history=state_history,
             control_history=control_history,
             state_estimate_history=state_estimate_history,
-            solve_time_history=solve_time_history,
+            qp_solve_time_history=qp_solve_time_history,
+            model_update_time_history=model_update_time_history,
+            iteration_history=iteration_history,
             reference_history=reference_list,
+            pitch_error_history=pitch_error_history,
+            velocity_error_history=velocity_error_history,
+            torque_saturation_history=torque_saturation_history,
+            infeasible_history=infeasible_history,
             success=success,
             total_duration_s=wall_duration,
-            mean_solve_time_ms=np.mean(solve_time_history) * 1000 if len(solve_time_history) > 0 else 0,
-            max_solve_time_ms=np.max(solve_time_history) * 1000 if len(solve_time_history) > 0 else 0,
+            mean_qp_solve_time_ms=np.mean(qp_solve_time_history) * 1000 if len(qp_solve_time_history) > 0 else 0,
+            max_qp_solve_time_ms=np.max(qp_solve_time_history) * 1000 if len(qp_solve_time_history) > 0 else 0,
             deadline_violations=deadline_violations,
         )
 

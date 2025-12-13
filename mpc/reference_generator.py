@@ -61,6 +61,7 @@ class ReferenceCommand:
     center_y_m: float = 0.0
     target_velocity_mps: float = 0.2
     clockwise: bool = False
+    desired_pitch_rad: float = 0.0
 
 
 class ReferenceGenerator:
@@ -113,7 +114,7 @@ class ReferenceGenerator:
             Reference trajectory array (N+1, STATE_DIMENSION)
         """
         if command.mode == ReferenceMode.BALANCE:
-            return self.generate_balance_reference()
+            return self.generate_balance_reference(command.desired_pitch_rad)
         elif command.mode == ReferenceMode.VELOCITY:
             return self.generate_velocity_reference(
                 command.velocity_mps,
@@ -142,7 +143,7 @@ class ReferenceGenerator:
         else:
             raise ValueError(f"Unknown reference mode: {command.mode}")
 
-    def generate_balance_reference(self) -> np.ndarray:
+    def generate_balance_reference(self, desired_pitch_rad: float = 0.0) -> np.ndarray:
         """Generate constant zero reference for balance mode.
 
         The robot should maintain upright posture at rest.
@@ -152,7 +153,9 @@ class ReferenceGenerator:
             Reference trajectory (N+1, STATE_DIMENSION) of zeros
         """
         horizon = self._prediction_horizon_steps
-        return np.zeros((horizon + 1, STATE_DIMENSION))
+        reference = np.zeros((horizon + 1, STATE_DIMENSION))
+        reference[:, PITCH_INDEX] = desired_pitch_rad
+        return reference
 
     def generate_velocity_reference(
         self,

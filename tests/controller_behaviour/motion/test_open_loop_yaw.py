@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root))
 
 # Resolve model path (project root is three levels up from this file)
 repo_root = Path(__file__).resolve().parents[3]
-model_path = repo_root / "Mujoco sim" / "robot_model.xml"
+model_path = repo_root / "mujoco_sim" / "robot_model.xml"
 model = mujoco.MjModel.from_xml_path(str(model_path))
 data = mujoco.MjData(model)
 

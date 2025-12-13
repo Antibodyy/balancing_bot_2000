@@ -42,6 +42,7 @@ class MPCSolution:
         solve_time_s: Wall-clock solve time in seconds
         solver_status: Solver status string ('optimal', 'infeasible', etc.)
         cost: Optimal cost value
+        solver_iterations: Number of IPOPT iterations used for this solve
     """
 
     optimal_control: np.ndarray
@@ -50,6 +51,7 @@ class MPCSolution:
     solve_time_s: float
     solver_status: str
     cost: float
+    solver_iterations: int = 0
 
 
 class LinearMPCSolver:
@@ -83,6 +85,7 @@ class LinearMPCSolver:
         terminal_pitch_limit_rad: Optional[float] = None,
         terminal_pitch_rate_limit_radps: Optional[float] = None,
         terminal_velocity_limit_mps: Optional[float] = None,
+        preserve_warm_start_on_dynamics_update: bool = False,
     ) -> None:
         """Initialize the MPC solver.
 
@@ -99,6 +102,8 @@ class LinearMPCSolver:
             terminal_pitch_limit_rad: Terminal pitch constraint (None = no constraint)
             terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
             terminal_velocity_limit_mps: Terminal velocity constraint (None = no constraint)
+            preserve_warm_start_on_dynamics_update: Keep previous solution as initial
+                guess even when A/B matrices are refreshed (online linearization).
         """
         self._prediction_horizon_steps = prediction_horizon_steps
         self._state_cost = state_cost
@@ -111,6 +116,9 @@ class LinearMPCSolver:
         self._terminal_pitch_limit_rad = terminal_pitch_limit_rad
         self._terminal_pitch_rate_limit_radps = terminal_pitch_rate_limit_radps
         self._terminal_velocity_limit_mps = terminal_velocity_limit_mps
+        self._preserve_warm_start_on_dynamics_update = (
+            preserve_warm_start_on_dynamics_update
+        )
 
         # Store dynamics matrices (will be converted to parameters after Opti creation)
         self._state_matrix = discrete_dynamics.state_matrix_discrete
@@ -339,10 +347,13 @@ class LinearMPCSolver:
 
         # Solve
         start_time = time.perf_counter()
+        iter_count = 0
         try:
             solution = self._opti.solve()
             solve_time_s = time.perf_counter() - start_time
             solver_status = 'optimal'
+            stats = solution.stats() if hasattr(solution, "stats") else {}
+            iter_count = int(stats.get('iter_count', 0))
 
             # Extract solution
             state_trajectory = solution.value(self._state_variables).T
@@ -362,6 +373,7 @@ class LinearMPCSolver:
             state_trajectory = np.zeros((horizon + 1, STATE_DIMENSION))
             control_sequence = np.zeros((horizon, CONTROL_DIMENSION))
             cost = np.inf
+            iter_count = 0
 
         return MPCSolution(
             optimal_control=control_sequence[0, :].copy(),
@@ -370,6 +382,7 @@ class LinearMPCSolver:
             solve_time_s=solve_time_s,
             solver_status=solver_status,
             cost=cost,
+            solver_iterations=iter_count,
         )
 
     def _apply_warm_start(self) -> None:
@@ -425,9 +438,11 @@ class LinearMPCSolver:
         self._state_matrix = discrete_dynamics.state_matrix_discrete
         self._control_matrix = discrete_dynamics.control_matrix_discrete
 
-        # Clear warm start since dynamics changed
-        self._previous_state_solution = None
-        self._previous_control_solution = None
+        if not self._preserve_warm_start_on_dynamics_update:
+            # Default behaviour: discard guesses so we don't seed IPOPT with states
+            # computed under a different linearization model.
+            self._previous_state_solution = None
+            self._previous_control_solution = None
 
         # NO NEED to rebuild problem - parameters handle the update!
 

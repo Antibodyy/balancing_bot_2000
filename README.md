@@ -35,7 +35,7 @@ PYTHONPATH=. python3 scripts/debug/quick_check.py
 
 ```bash
 # Run simulation with visualization
-PYTHONPATH=. python3 "Mujoco sim/run_simulation.py"
+PYTHONPATH=. python3 "mujoco_sim/run_simulation.py"
 
 # Validate dynamics model
 PYTHONPATH=. python3 scripts/validation/check_dynamics_match.py
@@ -85,7 +85,7 @@ balancing_bot_2000/
 ??? tests/                  # Test suite
 ?   ??? regression/
 ?   ??? controller_behaviour/
-??? Mujoco sim/             # MuJoCo models and run_simulation entrypoint
+??? mujoco_sim/             # MuJoCo models and run_simulation entrypoint
 ?   ??? robot_model.xml
 ?   ??? run_simulation.py
 ??? viewer/                 # Lightweight viewer utilities

@@ -88,7 +88,7 @@ def simulate_lqr(disc, K, x0, steps, ref=None, u_limit=None):
 
 def run_mpc(duration_s: float, initial_pitch: float, ref_cb):
     cfg = SimulationConfig(
-        model_path="Mujoco sim/robot_model.xml",
+        model_path="mujoco_sim/robot_model.xml",
         robot_params_path="config/simulation/robot_params.yaml",
         mpc_params_path="config/simulation/mpc_params.yaml",
         estimator_params_path="config/simulation/estimator_params.yaml",

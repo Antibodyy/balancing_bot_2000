@@ -92,8 +92,8 @@ def _modify_model_and_params(
     slope_rad: float, temp_dir: str
 ) -> Tuple[Path, Path]:
     """Create slope-modified MuJoCo model and params in a temp directory."""
-    original_model_path = project_root / "Mujoco sim/robot_model.xml"
-    temp_model_path = Path(temp_dir) / "Mujoco sim" / "robot_model.xml"
+    original_model_path = project_root / "mujoco_sim/robot_model.xml"
+    temp_model_path = Path(temp_dir) / "mujoco_sim" / "robot_model.xml"
     temp_model_path.parent.mkdir(parents=True, exist_ok=True)
 
     tree = ET.parse(original_model_path)

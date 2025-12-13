@@ -26,7 +26,7 @@ def mujoco_model():
     """Load MuJoCo model."""
     if not MUJOCO_AVAILABLE:
         pytest.skip("MuJoCo not available")
-    model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
+    model = mujoco.MjModel.from_xml_path('mujoco_sim/robot_model.xml')
     return model
 
 
@@ -66,7 +66,7 @@ def test_geometry_consistency(params, mujoco_model):
 
     Verifies wheel radius, track width, and COM distance.
     """
-    # These values are known from the Mujoco sim/robot_model.xml
+    # These values are known from the mujoco_sim/robot_model.xml
     mujoco_wheel_radius = 0.05  # m
     mujoco_track_width = 0.30  # m
     mujoco_com_height = 0.20  # m

@@ -43,8 +43,10 @@ class MPCConfig:
         terminal_pitch_rate_limit_radps: Terminal pitch rate constraint (None = no constraint)
         terminal_velocity_limit_mps: Terminal velocity constraint (None = no constraint)
         online_linearization_enabled: If True, re-linearize dynamics at current state each step
+        preserve_warm_start_on_linearization: Keep the previous MPC solution as the
+            initial guess even when the dynamics matrices are refreshed online.
+            Disabled by default to preserve legacy behaviour.
     """
-
     # Horizon parameters
     prediction_horizon_steps: int
     sampling_period_s: float
@@ -75,6 +77,7 @@ class MPCConfig:
 
     # Online linearization (successive linearization at current state)
     online_linearization_enabled: bool = False
+    preserve_warm_start_on_linearization: bool = False
 
     def __post_init__(self) -> None:
         """Validate parameters satisfy constraints."""
@@ -153,6 +156,9 @@ class MPCConfig:
             terminal_velocity_limit_mps=config.get('terminal_velocity_limit_mps', None),
             # Online linearization (optional, backward compatible)
             online_linearization_enabled=config.get('online_linearization_enabled', False),
+            preserve_warm_start_on_linearization=config.get(
+                'preserve_warm_start_on_linearization', False
+            ),
         )
 
     @property

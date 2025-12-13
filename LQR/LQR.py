@@ -123,7 +123,7 @@ def controller_callback(model, data):
 
 def main():
 # MuJoCo model lives under the reorganized folder (not repo root)
-model_path = Path(__file__).parent.parent / "Mujoco sim" / "robot_model.xml"
+model_path = Path(__file__).parent.parent / "mujoco_sim" / "robot_model.xml"
 model = mujoco.MjModel.from_xml_path(str(model_path))
     data = mujoco.MjData(model)
     data.qpos[1] = theta_eq

@@ -176,7 +176,9 @@ class BalanceController:
 
         # 2. Update linearization if enabled
         if self._online_linearization_enabled:
+            self._timer.start_model_update()
             self._update_linearization(state_estimate)
+            self._timer.mark_model_update_complete()
 
         # 3. Generate reference trajectory
         reference_deviation = self._reference_generator.generate(

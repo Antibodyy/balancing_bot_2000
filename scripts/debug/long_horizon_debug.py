@@ -102,7 +102,7 @@ def main() -> None:
         try:
             mpc_path = write_temp_mpc_config(base_mpc_cfg, N)
             sim_cfg = SimulationConfig(
-                model_path="Mujoco sim/robot_model.xml",
+                model_path="mujoco_sim/robot_model.xml",
                 robot_params_path="config/simulation/robot_params.yaml",
                 mpc_params_path=mpc_path,
                 estimator_params_path="config/simulation/estimator_params.yaml",

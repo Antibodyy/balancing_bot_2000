@@ -5,7 +5,7 @@ import mujoco
 from robot_dynamics import RobotParameters, linearize_at_equilibrium, compute_equilibrium_state
 
 # Load
-model = mujoco.MjModel.from_xml_path('Mujoco sim/robot_model.xml')
+model = mujoco.MjModel.from_xml_path('mujoco_sim/robot_model.xml')
 data = mujoco.MjData(model)
 params = RobotParameters.from_yaml('config/simulation/robot_params.yaml')
 

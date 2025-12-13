@@ -37,7 +37,7 @@ pytestmark = pytest.mark.skipif(
 def simulation():
     """Create simulation with default config."""
     config = SimulationConfig(
-        model_path='Mujoco sim/robot_model.xml',
+        model_path='mujoco_sim/robot_model.xml',
         robot_params_path='config/simulation/robot_params.yaml',
         mpc_params_path='config/simulation/mpc_params.yaml',
         estimator_params_path='config/simulation/estimator_params.yaml',
@@ -56,7 +56,7 @@ class TestSimulationCreation:
 
     def test_config_loaded(self, simulation):
         """Test that configuration is loaded."""
-        assert simulation.config.model_path == 'Mujoco sim/robot_model.xml'
+        assert simulation.config.model_path == 'mujoco_sim/robot_model.xml'
         assert simulation.config.duration_s == 5.0
 
 
