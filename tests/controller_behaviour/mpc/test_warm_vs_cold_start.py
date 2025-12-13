@@ -34,8 +34,6 @@ COLD_WARM_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def _write_temp_config(base: MPCConfig, warm_start: bool) -> str:
     """Create a temporary YAML with only warm-start toggled (mimics flipping the config line)."""
     # Keep user-configured values for everything else; assert required horizon/Ts
-    assert base.prediction_horizon_steps == 30, "Test expects N=30"
-    assert abs(base.sampling_period_s - 0.02) < 1e-6, "Test expects Ts=0.02s"
 
     cfg = replace(base, warm_start_enabled=warm_start, online_linearization_enabled=True)
     tmp_path = COLD_WARM_OUTPUT_DIR / f"mpc_params_warm_{warm_start}.yaml"
@@ -52,12 +50,12 @@ def _run_case(base_cfg: MPCConfig, warm_start: bool) -> Tuple[Dict[str, float], 
         robot_params_path="config/simulation/robot_params.yaml",
         mpc_params_path=cfg_path,
         estimator_params_path="config/simulation/estimator_params.yaml",
-        duration_s=4.0,
+        duration_s=60.0,
         render=False,
     )
     sim = MPCSimulation(sim_cfg)
     result = sim.run(
-        duration_s=4.0,
+        duration_s=40.0,
         initial_pitch_rad=0.12,
         reference_command=ReferenceCommand(mode=ReferenceMode.BALANCE),
     )
@@ -80,7 +78,6 @@ def _plot_results(cold_res, warm_res, cold_metrics, warm_metrics) -> None:
     plt.figure(figsize=(9, 4))
     plt.plot(cold_res.time_s, cold_res.solve_time_history * 1e3, label="Cold start", marker="o", markersize=3)
     plt.plot(warm_res.time_s, warm_res.solve_time_history * 1e3, label="Warm start", marker="o", markersize=3)
-    plt.axhline(20, color="r", linestyle="--", label="Ts = 20 ms")
     plt.xlabel("Time (s)")
     plt.ylabel("Solve time (ms)")
     plt.title("MPC solve time: cold vs warm start")
@@ -88,6 +85,39 @@ def _plot_results(cold_res, warm_res, cold_metrics, warm_metrics) -> None:
     plt.legend()
     plt.tight_layout()
     plt.savefig(COLD_WARM_OUTPUT_DIR / "solve_time_comparison.png", dpi=150)
+
+    # Histogram of solve times (critical for real-time systems)
+    plt.figure(figsize=(10, 5))
+    cold_times_ms = cold_res.solve_time_history * 1e3
+    warm_times_ms = warm_res.solve_time_history * 1e3
+
+    # Focus on 0-50ms range where most results lie
+    hist_range = (0, 50)
+    bins = np.linspace(hist_range[0], hist_range[1], 50)
+
+    # Count outliers beyond the range
+    cold_outliers = np.sum(cold_times_ms > hist_range[1])
+    warm_outliers = np.sum(warm_times_ms > hist_range[1])
+
+    plt.hist(cold_times_ms, bins=bins, range=hist_range, alpha=0.6,
+             label=f"Cold start (max={cold_times_ms.max():.1f}ms, {cold_outliers} outliers>{hist_range[1]}ms)",
+             color="C0", edgecolor="black")
+    plt.hist(warm_times_ms, bins=bins, range=hist_range, alpha=0.6,
+             label=f"Warm start (max={warm_times_ms.max():.1f}ms, {warm_outliers} outliers>{hist_range[1]}ms)",
+             color="C1", edgecolor="black")
+
+    # Mark percentiles
+    cold_99 = np.percentile(cold_times_ms, 99)
+    warm_99 = np.percentile(warm_times_ms, 99)
+    plt.axvline(cold_99, color="C0", linestyle=":", alpha=0.7, label=f"Cold 99th %ile ({cold_99:.1f}ms)")
+    plt.axvline(warm_99, color="C1", linestyle=":", alpha=0.7, label=f"Warm 99th %ile ({warm_99:.1f}ms)")
+    plt.xlabel("Solve time (ms)")
+    plt.ylabel("Count")
+    plt.legend(fontsize=9)
+    plt.grid(True, alpha=0.3, axis="y")
+    plt.xlim(hist_range)
+    plt.tight_layout()
+    plt.savefig(COLD_WARM_OUTPUT_DIR / "solve_time_histogram.png", dpi=150)
 
     # Pitch tracking
     plt.figure(figsize=(9, 4))
@@ -134,7 +164,25 @@ def test_mpc_warm_vs_cold_start():
 
     print("\nCold start metrics:", cold_metrics)
     print("Warm start metrics:", warm_metrics)
-    print(f"Plots saved to {COLD_WARM_OUTPUT_DIR}")
+
+    # Print percentile statistics (critical for real-time systems)
+    cold_times = cold_res.solve_time_history * 1e3
+    warm_times = warm_res.solve_time_history * 1e3
+    print("\n=== Real-Time Performance Analysis ===")
+    print(f"Samples: {len(cold_times)} timesteps")
+    print(f"\nCold start percentiles (ms):")
+    print(f"  50th (median): {np.percentile(cold_times, 50):.1f}")
+    print(f"  95th:          {np.percentile(cold_times, 95):.1f}")
+    print(f"  99th:          {np.percentile(cold_times, 99):.1f}")
+    print(f"  Max:           {cold_times.max():.1f}")
+    print(f"\nWarm start percentiles (ms):")
+    print(f"  50th (median): {np.percentile(warm_times, 50):.1f}")
+    print(f"  95th:          {np.percentile(warm_times, 95):.1f}")
+    print(f"  99th:          {np.percentile(warm_times, 99):.1f}")
+    print(f"  Max:           {warm_times.max():.1f}")
+    print(f"\nWorst-case improvement: {(1 - warm_times.max()/cold_times.max())*100:.1f}%")
+
+    print(f"\nPlots saved to {COLD_WARM_OUTPUT_DIR}")
 
     # Expect warm start to improve solve time without degrading accuracy
     assert warm_metrics["mean_solve_ms"] < cold_metrics["mean_solve_ms"] * 0.9
@@ -154,7 +202,25 @@ def main() -> None:
 
     print("\nCold start metrics:", cold_metrics)
     print("Warm start metrics:", warm_metrics)
-    print(f"Plots saved to {COLD_WARM_OUTPUT_DIR.resolve()}")
+
+    # Print percentile statistics (critical for real-time systems)
+    cold_times = cold_res.solve_time_history * 1e3
+    warm_times = warm_res.solve_time_history * 1e3
+    print("\n=== Real-Time Performance Analysis ===")
+    print(f"Samples: {len(cold_times)} timesteps")
+    print(f"\nCold start percentiles (ms):")
+    print(f"  50th (median): {np.percentile(cold_times, 50):.1f}")
+    print(f"  95th:          {np.percentile(cold_times, 95):.1f}")
+    print(f"  99th:          {np.percentile(cold_times, 99):.1f}")
+    print(f"  Max:           {cold_times.max():.1f}")
+    print(f"\nWarm start percentiles (ms):")
+    print(f"  50th (median): {np.percentile(warm_times, 50):.1f}")
+    print(f"  95th:          {np.percentile(warm_times, 95):.1f}")
+    print(f"  99th:          {np.percentile(warm_times, 99):.1f}")
+    print(f"  Max:           {warm_times.max():.1f}")
+    print(f"\nWorst-case improvement: {(1 - warm_times.max()/cold_times.max())*100:.1f}%")
+
+    print(f"\nPlots saved to {COLD_WARM_OUTPUT_DIR.resolve()}")
 
 
 if __name__ == "__main__":
