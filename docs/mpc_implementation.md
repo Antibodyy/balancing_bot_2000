@@ -209,6 +209,7 @@ Main orchestrator that ties everything together:
 ```python
 from control_pipeline import BalanceController, SensorData
 
+eq_state, eq_control = compute_equilibrium_state(robot_params)
 controller = BalanceController(
     mpc_solver=solver,
     state_estimator=estimator,
@@ -216,6 +217,9 @@ controller = BalanceController(
     sampling_period_s=0.02,
     wheel_radius_m=0.05,
     track_width_m=0.3,
+    robot_params=robot_params,
+    equilibrium_state=eq_state,
+    equilibrium_control=eq_control,
 )
 
 output = controller.step(sensor_data, reference_command)

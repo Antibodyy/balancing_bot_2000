@@ -11,12 +11,14 @@ Note: MuJoCo is an optional dependency. If not installed, the module
 can still be imported but simulation methods will raise ImportError.
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List, Callable, Any
+from typing import Optional, List, Callable, Any, Tuple
 import time
 
 import numpy as np
+from scipy.optimize import least_squares, brentq
 
 # MuJoCo is optional - only required for actual simulation
 try:
@@ -50,7 +52,9 @@ from robot_dynamics import (
     linearize_at_equilibrium,
     discretize_linear_dynamics,
     compute_equilibrium_state,
+    compute_state_derivative,
 )
+from robot_dynamics.linearization import linearize_at_state
 from robot_dynamics.orientation import quat_to_yaw
 from state_estimation import EstimatorConfig, ComplementaryFilter
 from control_pipeline import (
@@ -58,6 +62,9 @@ from control_pipeline import (
     SensorData,
     ControlOutput,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,6 +90,7 @@ class SimulationConfig:
     render: bool = False
     record_video: bool = False
     video_path: str = 'simulation_output.mp4'
+    use_virtual_physics: bool = False  # Toggle analytic “virtual” plant instead of MuJoCo.
 
 
 @dataclass
@@ -164,9 +172,16 @@ class MPCSimulation:
         self._estimator_config = EstimatorConfig.from_yaml(
             self._config.estimator_params_path
         )
+        # When True we integrate the symbolic dynamics instead of MuJoCo so the
+        # controller can run end-to-end even if the physics engine misbehaves.
+        self._use_virtual_physics = self._config.use_virtual_physics
 
         # Use ground slope from robot parameters (must match MuJoCo model)
         self._ground_slope_rad = self._robot_params.ground_slope_rad
+
+        # Cache equilibrium placeholders (set during controller build)
+        self._equilibrium_state = np.zeros(STATE_DIMENSION)
+        self._equilibrium_control = np.zeros(CONTROL_DIMENSION)
 
         # Build controller
         self._controller = self._build_controller()
@@ -174,6 +189,7 @@ class MPCSimulation:
         # MuJoCo model and data (loaded on run)
         self._model: Optional[Any] = None  # mujoco.MjModel when loaded
         self._data: Optional[Any] = None   # mujoco.MjData when loaded
+        self._virtual_state = np.zeros(STATE_DIMENSION)
 
         # Simulation state
         self._encoder_left_rad: float = 0.0
@@ -185,13 +201,45 @@ class MPCSimulation:
         Returns:
             Configured BalanceController instance
         """
-        # Compute equilibrium (accounting for slope)
+        # Compute equilibrium (accounting for slope) via analytic model
         eq_state, eq_control = compute_equilibrium_state(self._robot_params)
+        use_linearize_at_state = False
 
-        # Linearize at equilibrium
-        linearized = linearize_at_equilibrium(
-            self._robot_params, eq_state, eq_control
-        )
+        if not self._use_virtual_physics and abs(self._ground_slope_rad) > 1e-6:
+            mujoco_equilibrium = self._estimate_equilibrium_from_mujoco(
+                eq_state, eq_control,
+            )
+            if mujoco_equilibrium is not None:
+                eq_state, eq_control = mujoco_equilibrium
+                use_linearize_at_state = True
+
+        # Cache equilibrium for later use (initial conditions, logging)
+        self._equilibrium_state = eq_state
+        self._equilibrium_control = eq_control
+        self._virtual_state = eq_state.copy()  # seed virtual plant at operating point
+
+        # Linearize dynamics. When MuJoCo refinement is used the analytic
+        # model no longer sees an exact equilibrium, so fall back to a raw
+        # state linearization if validation fails.
+        if use_linearize_at_state:
+            linearized = linearize_at_state(
+                self._robot_params, eq_state, eq_control
+            )
+        else:
+            try:
+                linearized = linearize_at_equilibrium(
+                    self._robot_params, eq_state, eq_control
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Equilibrium validation failed (%.3f slope rad): %s. "
+                    "Falling back to linearize_at_state.",
+                    self._ground_slope_rad,
+                    exc,
+                )
+                linearized = linearize_at_state(
+                    self._robot_params, eq_state, eq_control
+                )
 
         # Discretize
         discrete = discretize_linear_dynamics(
@@ -260,28 +308,137 @@ class MPCSimulation:
             wheel_radius_m=self._robot_params.wheel_radius_m,
             track_width_m=self._robot_params.track_width_m,
             robot_params=self._robot_params,
+             equilibrium_state=eq_state,
+             equilibrium_control=eq_control,
             online_linearization_enabled=self._mpc_config.online_linearization_enabled,
             use_simulation_velocity=True,  # FIX: Enable corrected velocity in simulation
         )
 
+    def _resolve_model_path(self) -> Path:
+        """Resolve MuJoCo model path relative to repository root."""
+        model_path = Path(self._config.model_path)
+        if not model_path.is_absolute():
+            repo_root = Path(__file__).resolve().parent.parent
+            model_path = (repo_root / model_path).resolve()
+        return model_path
+
     def _load_model(self) -> None:
         """Load MuJoCo model and create data."""
+        if self._use_virtual_physics:
+            # Sensor emulation pulled directly from the virtual state so the controller
+            # sees realistic IMU/encoder values even without MuJoCo.
+            # Virtual mode sidesteps MuJoCo entirely; dynamics are evaluated analytically.
+            self._model = None
+            self._data = None
+            return
         if not MUJOCO_AVAILABLE:
             raise ImportError(
                 "MuJoCo is required for simulation but not installed. "
                 "Install with: pip install mujoco"
             )
 
-        model_path = Path(self._config.model_path)
-        if not model_path.is_absolute():
-            # Resolve relative paths against repository root (two levels up from this file)
-            repo_root = Path(__file__).resolve().parent.parent
-            model_path = (repo_root / model_path).resolve()
+        model_path = self._resolve_model_path()
         if not model_path.exists():
             raise FileNotFoundError(f"MuJoCo model not found: {model_path}")
 
         self._model = mujoco.MjModel.from_xml_path(str(model_path))
         self._data = mujoco.MjData(self._model)
+
+    def _estimate_equilibrium_from_mujoco(
+        self,
+        analytic_state: np.ndarray,
+        analytic_control: np.ndarray,
+    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """Estimate equilibrium by running MuJoCo with a PI velocity hold.
+
+        The PI loop drives longitudinal velocity toward zero while the robot
+        settles on the slope. The steady-state pitch/torque extracted from the
+        tail of the run define the equilibrium used for linearization.
+        """
+        if not MUJOCO_AVAILABLE:
+            logger.warning(
+                "MuJoCo not available; cannot refine slope equilibrium."
+            )
+            return None
+
+        model_path = self._resolve_model_path()
+        if not model_path.exists():
+            logger.warning(
+                "MuJoCo model path %s does not exist; using analytic equilibrium.",
+                model_path,
+            )
+            return None
+
+        try:
+            model = mujoco.MjModel.from_xml_path(str(model_path))
+            data = mujoco.MjData(model)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.warning(
+                "Failed to load MuJoCo model for equilibrium estimation: %s",
+                exc,
+            )
+            return None
+
+        # Preserve MuJoCo defaults (body height, wheel offsets, etc.)
+        base_qpos = data.qpos.copy()
+        base_height = base_qpos[self.FREE_JOINT_POS_START + 2]
+
+        sim_duration_s = 3.0
+        sim_steps = max(1, int(sim_duration_s / model.opt.timestep))
+
+        torque_bias = float(analytic_control[0])
+        integral_v = 0.0
+        torque_limit = 1.0
+        velocity_kp = 2.0
+        velocity_ki = 6.0
+        pitch_damping = 0.3
+
+        pitch_samples = []
+        torque_samples = []
+
+        def current_pitch() -> float:
+            qw = data.qpos[self.FREE_JOINT_QUAT_START]
+            qx = data.qpos[self.FREE_JOINT_QUAT_START + 1]
+            qy = data.qpos[self.FREE_JOINT_QUAT_START + 2]
+            qz = data.qpos[self.FREE_JOINT_QUAT_START + 3]
+            return float(np.arcsin(2.0 * (qw * qy - qz * qx)))
+
+        dt = model.opt.timestep
+        for step in range(sim_steps):
+            if step == 0:
+                mujoco.mj_resetData(model, data)
+                data.qpos[:] = base_qpos
+                data.qvel[:] = 0.0
+                data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [
+                    0.0, 0.0, base_height
+                ]
+
+            vx = data.qvel[self.FREE_JOINT_VEL_START]
+            pitch_rate = data.qvel[self.FREE_JOINT_ANGVEL_START + 1]
+            integral_v += -vx * dt  # basic PI controller to drive velocity to zero
+            control_torque = torque_bias + velocity_kp * (-vx) + velocity_ki * integral_v - pitch_damping * pitch_rate
+            control_torque = float(np.clip(control_torque, -torque_limit, torque_limit))
+            data.ctrl[self.LEFT_ACTUATOR] = control_torque
+            data.ctrl[self.RIGHT_ACTUATOR] = control_torque
+            mujoco.mj_step(model, data)
+
+            if step > sim_steps * 0.6:
+                pitch_samples.append(current_pitch())
+                torque_samples.append(control_torque)
+
+        if not pitch_samples:
+            logger.warning("MuJoCo PI equilibrium run produced no samples.")
+            return None
+
+        eq_state = analytic_state.copy()
+        eq_state[PITCH_INDEX] = float(np.mean(pitch_samples))
+        eq_control = np.array([np.mean(torque_samples), np.mean(torque_samples)], dtype=float)
+        logger.info(
+            "MuJoCo PI equilibrium: pitch %.3f deg torque %.4f Nm",
+            np.degrees(eq_state[PITCH_INDEX]),
+            eq_control[0],
+        )
+        return eq_state, eq_control
 
     def _extract_state(self) -> np.ndarray:
         """Extract full state from MuJoCo.
@@ -291,6 +448,10 @@ class MPCSimulation:
         Returns:
             State vector [x, theta, psi, dx, dtheta, dpsi]
         """
+        if self._use_virtual_physics:
+            # Virtual mode keeps the state in a NumPy array; just return it.
+            return self._virtual_state.copy()
+
         state = np.zeros(STATE_DIMENSION)
 
         # Position (x direction)
@@ -303,9 +464,9 @@ class MPCSimulation:
         qy = self._data.qpos[self.FREE_JOINT_QUAT_START + 2]
         qz = self._data.qpos[self.FREE_JOINT_QUAT_START + 3]
 
-        # Pitch (rotation about y-axis): arcsin(2*(qw*qy - qz*qx))
-        pitch_rad = np.arcsin(2.0 * (qw * qy - qz * qx))
-        state[PITCH_INDEX] = pitch_rad + self._ground_slope_rad
+        # Pitch (rotation about y-axis): arcsin(2*(qw*qy - qz*qx)),
+        # measured in world coordinates (same convention as dynamics module).
+        state[PITCH_INDEX] = np.arcsin(2.0 * (qw * qy - qz * qx))
 
         # Yaw (rotation about z-axis): arctan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
         yaw_rad = quat_to_yaw(np.array([qw, qx, qy, qz]))
@@ -329,12 +490,37 @@ class MPCSimulation:
         Returns:
             SensorData for controller input
         """
+        if self._use_virtual_physics:
+            pitch_rad = self._virtual_state[PITCH_INDEX]
+            pitch_rate = self._virtual_state[PITCH_RATE_INDEX]
+            yaw_rate = self._virtual_state[YAW_RATE_INDEX]
+            gravity = self._robot_params.gravity_mps2
+            acceleration = np.array([
+                gravity * np.sin(pitch_rad),
+                0.0,
+                gravity * np.cos(pitch_rad),
+            ])
+            angular_velocity = np.array([
+                0.0,
+                pitch_rate,
+                yaw_rate,
+            ])
+            self._encoder_left_rad = 0.0
+            self._encoder_right_rad = 0.0
+            return SensorData(
+                acceleration_mps2=acceleration,
+                angular_velocity_radps=angular_velocity,
+                encoder_left_rad=self._encoder_left_rad,
+                encoder_right_rad=self._encoder_right_rad,
+                timestamp_s=timestamp_s,
+            )
+
         # Extract pitch from quaternion
         qw = self._data.qpos[self.FREE_JOINT_QUAT_START]
         qx = self._data.qpos[self.FREE_JOINT_QUAT_START + 1]
         qy = self._data.qpos[self.FREE_JOINT_QUAT_START + 2]
         qz = self._data.qpos[self.FREE_JOINT_QUAT_START + 3]
-        pitch_rad = np.arcsin(2.0 * (qw * qy - qz * qx)) + self._ground_slope_rad
+        pitch_rad = np.arcsin(2.0 * (qw * qy - qz * qx))
 
         # Angular velocities from freejoint
         pitch_rate_radps = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 1]
@@ -375,6 +561,11 @@ class MPCSimulation:
             torque_left_nm: Left wheel torque in N*m
             torque_right_nm: Right wheel torque in N*m
         """
+        if self._use_virtual_physics:
+            # Store the torques so the virtual integrator can apply them.
+            self._last_control = (torque_left_nm, torque_right_nm)
+            return
+
         # Direct torque control (gear=1.0 in new model)
         self._data.ctrl[self.LEFT_ACTUATOR] = torque_left_nm
         self._data.ctrl[self.RIGHT_ACTUATOR] = torque_right_nm
@@ -431,19 +622,23 @@ class MPCSimulation:
         else:
             static_command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
 
-        # Load model
-        self._load_model()
+        if self._use_virtual_physics:
+            # Start virtual plant at equilibrium and apply the requested perturbation.
+            self._virtual_state = self._equilibrium_state.copy()
+            self._virtual_state[PITCH_INDEX] += initial_pitch_rad
+        else:
+            # Load model
+            self._load_model()
 
-        # Set initial conditions for freejoint
-        # Position: start at origin
-        self._data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [0, 0, 0.25]
+            # Set initial conditions for freejoint
+            # Position: start at origin
+            self._data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [0, 0, 0.25]
 
-        # Orientation: convert pitch perturbation to quaternion
-        # Small angle approximation for pitch rotation about y-axis
-        pitch_perturb = initial_pitch_rad - self._ground_slope_rad
-        qw = np.cos(pitch_perturb / 2)
-        qy = np.sin(pitch_perturb / 2)
-        self._data.qpos[self.FREE_JOINT_QUAT_START:self.FREE_JOINT_QUAT_START + 4] = [qw, 0, qy, 0]
+            # Orientation: equilibrium pitch (absolute) plus optional perturbation
+            pitch_target = self._equilibrium_state[PITCH_INDEX] + initial_pitch_rad
+            qw = np.cos(pitch_target / 2)
+            qy = np.sin(pitch_target / 2)
+            self._data.qpos[self.FREE_JOINT_QUAT_START:self.FREE_JOINT_QUAT_START + 4] = [qw, 0, qy, 0]
 
         # Reset controller
         self._controller.reset()
@@ -451,9 +646,15 @@ class MPCSimulation:
         self._encoder_right_rad = 0.0
 
         # Compute number of steps
-        mujoco_timestep = self._model.opt.timestep
         mpc_period = self._mpc_config.sampling_period_s
-        mujoco_steps_per_mpc = int(mpc_period / mujoco_timestep)
+        if self._use_virtual_physics:
+            # Break each MPC period into several smaller integration steps so the
+            # virtual plant stays stable even without MuJoCo’s small timestep.
+            mujoco_steps_per_mpc = 5
+            virtual_dt = mpc_period / mujoco_steps_per_mpc
+        else:
+            mujoco_timestep = self._model.opt.timestep
+            mujoco_steps_per_mpc = int(mpc_period / mujoco_timestep)
         n_mpc_steps = int(duration / mpc_period)
 
         # Allocate result arrays
@@ -487,12 +688,17 @@ class MPCSimulation:
             # Build sensor data
             sensor_data = self._build_sensor_data(sim_time)
 
-            # FIX: Provide true ground velocity to controller (for simulation mode)
-            self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
-            # Provide true heading/yaw rate for simulation to bypass encoder yaw errors
             state_now = self._extract_state()
-            self._controller._true_heading = state_now[YAW_INDEX]
-            self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
+            if self._use_virtual_physics:
+                self._controller._true_ground_velocity = state_now[VELOCITY_INDEX]
+                self._controller._true_heading = state_now[YAW_INDEX]
+                self._controller._true_yaw_rate = state_now[YAW_RATE_INDEX]
+            else:
+                # FIX: Provide true ground velocity to controller (for simulation mode)
+                self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
+                # Provide true heading/yaw rate for simulation to bypass encoder yaw errors
+                self._controller._true_heading = state_now[YAW_INDEX]
+                self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
             # Run controller
             output = self._controller.step(sensor_data, command)
@@ -516,9 +722,16 @@ class MPCSimulation:
             # Apply control
             self._apply_control(output.torque_left_nm, output.torque_right_nm)
 
-            # Step MuJoCo for one MPC period
-            for _ in range(mujoco_steps_per_mpc):
-                mujoco.mj_step(self._model, self._data)
+            if self._use_virtual_physics:
+                # Integrate the nonlinear dynamics directly using the requested torques.
+                for _ in range(mujoco_steps_per_mpc):
+                    control_vec = np.array([output.torque_left_nm, output.torque_right_nm])
+                    deriv = compute_state_derivative(self._virtual_state, control_vec, self._robot_params)
+                    self._virtual_state += deriv * virtual_dt
+            else:
+                # Step MuJoCo for one MPC period
+                for _ in range(mujoco_steps_per_mpc):
+                    mujoco.mj_step(self._model, self._data)
 
             # Check if fallen
             if self._check_fallen(state_history[step_idx]):
@@ -626,6 +839,9 @@ class MPCSimulation:
         else:
             static_command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
 
+        if self._use_virtual_physics:
+            raise NotImplementedError("Viewer mode not supported with virtual physics.")
+
         # Load model
         self._load_model()
 
@@ -633,10 +849,10 @@ class MPCSimulation:
         # Position: start at origin
         self._data.qpos[self.FREE_JOINT_POS_START:self.FREE_JOINT_POS_START + 3] = [0, 0, 0.25]
 
-        # Orientation: convert pitch perturbation to quaternion
-        pitch_perturb = initial_pitch_rad - self._ground_slope_rad
-        qw = np.cos(pitch_perturb / 2)
-        qy = np.sin(pitch_perturb / 2)
+        # Orientation: equilibrium pitch (absolute) plus optional perturbation
+        pitch_target = self._equilibrium_state[PITCH_INDEX] + initial_pitch_rad
+        qw = np.cos(pitch_target / 2)
+        qy = np.sin(pitch_target / 2)
         self._data.qpos[self.FREE_JOINT_QUAT_START:self.FREE_JOINT_QUAT_START + 4] = [qw, 0, qy, 0]
 
         # Reset controller
@@ -750,3 +966,13 @@ class MPCSimulation:
     def config(self) -> SimulationConfig:
         """Access simulation configuration."""
         return self._config
+
+    @property
+    def equilibrium_state(self) -> np.ndarray:
+        """Copy of the cached equilibrium state."""
+        return self._equilibrium_state.copy()
+
+    @property
+    def equilibrium_control(self) -> np.ndarray:
+        """Copy of the cached equilibrium control."""
+        return self._equilibrium_control.copy()

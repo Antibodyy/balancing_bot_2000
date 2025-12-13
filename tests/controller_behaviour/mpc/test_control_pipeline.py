@@ -100,6 +100,9 @@ def controller(robot_params, mpc_config):
         sampling_period_s=mpc_config.sampling_period_s,
         wheel_radius_m=robot_params.wheel_radius_m,
         track_width_m=robot_params.track_width_m,
+        robot_params=robot_params,
+        equilibrium_state=eq_state,
+        equilibrium_control=eq_control,
     )
 
 

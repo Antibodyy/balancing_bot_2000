@@ -26,29 +26,33 @@
     <geom name="floor" type="plane" size="0 0 0.05" rgba=".8 .9 .8 1"/>
 
     <!-- Robot with freejoint (position emerges from wheel rolling) -->
-    <body name="robot" pos="0 0 0.25" euler="0 0 0">
+    <body name="robot" pos="0 0 0.04" euler="0 0 0">
       <freejoint name="robot_free"/>
+      <!-- Explicit inertial definition so MuJoCo mass matches Table 2 -->
+      <inertial mass="0.43" pos="0 0 0.0275" diaginertia="0.00149 0.00149 0.00149"/>
 
       <camera name="chase" mode="fixed" pos="-0.8 0 0.4" xyaxes="0 -1 0 0 0 1"/>
       <camera name="tracking_cam" mode="track" target="robot" pos="-1.5 0 1" xyaxes="0 -1 0 0 0 1"/>
 
-      <!-- Main body: box 0.1x0.1x0.4m at COM height 0.2m above axle -->
-      <geom name="body_box" type="box" size="0.05 0.05 0.2" pos="0 0 0"
-            rgba="0.9 0.5 0.1 1" mass="1.5" contype="0" conaffinity="0"/>
+      <!-- Visual body shell (massless, inertia handled above) -->
+      <geom name="body_box" type="box" size="0.04 0.02 0.08" pos="0 0 0.08"
+            rgba="0.9 0.5 0.1 1" contype="0" conaffinity="0"/>
 
-      <!-- Right wheel at axle level, offset -0.15m in y -->
-      <body name="wheel_r" pos="0 -0.15 -0.2">
+      <!-- Right wheel at axle level, offset -0.05m in y (track width = 0.1 m) -->
+      <body name="wheel_r" pos="0 -0.05 0.0">
+        <inertial mass="0.02" pos="0 0 0" diaginertia="0.0001 0.0001 0.0001"/>
         <joint name="motor_r" type="hinge" axis="0 1 0" damping="0.001"/>
-        <geom name="wheel_r_geom" type="cylinder" size="0.05 0.02"
-              rgba="0.1 0.1 0.1 1" mass="0.5"
+        <geom name="wheel_r_geom" type="cylinder" size="0.04 0.01"
+              rgba="0.1 0.1 0.1 1"
               euler="1.5708 0 0"/>
       </body>
 
-      <!-- Left wheel at axle level, offset +0.15m in y -->
-      <body name="wheel_l" pos="0 0.15 -0.2">
+      <!-- Left wheel mirrors right -->
+      <body name="wheel_l" pos="0 0.05 0.0">
+        <inertial mass="0.02" pos="0 0 0" diaginertia="0.0001 0.0001 0.0001"/>
         <joint name="motor_l" type="hinge" axis="0 1 0" damping="0.001"/>
-        <geom name="wheel_l_geom" type="cylinder" size="0.05 0.02"
-              rgba="0.1 0.1 0.1 1" mass="0.5"
+        <geom name="wheel_l_geom" type="cylinder" size="0.04 0.01"
+              rgba="0.1 0.1 0.1 1"
               euler="1.5708 0 0"/>
       </body>
     </body>

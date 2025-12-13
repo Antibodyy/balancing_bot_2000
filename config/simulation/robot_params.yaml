@@ -7,19 +7,19 @@
 #   python3 scripts/compute_terminal_set.py --config simulation
 # Otherwise, MPC terminal constraints may be invalid!
 
-# Masses (kg)
-body_mass_kg: 0.43        
+# Masses (kg) -- matches Table 2 of hardware spec
+body_mass_kg: 0.43
 wheel_mass_kg: 0.02
 
 # Geometry (m)
-com_distance_m: 0.0275      # distance from axle to COM
-wheel_radius_m: 0.04     # wheel radius
-track_width_m: 0.1       # distance between wheels
+com_distance_m: 0.0275      # distance from axle to COM (l in table)
+wheel_radius_m: 0.04        # wheel radius r
+track_width_m: 0.1          # distance between wheel centers d
 
-# Inertias (kg·m²) --> some unknown, upload the bot CAD into mujoco to find it
-body_pitch_inertia_kg_m2: 0.0212   # I_y -- still gotta find it matching MuJoCo
-body_yaw_inertia_kg_m2: 0.0025      # I_z -- still gotta find it matching MuJoCo
-wheel_inertia_kg_m2: 0.000344       # J_w - cylinder I=0.5*m*r² (0.43kg, 0.04m radius)
+# Inertias (kg·m²)
+body_pitch_inertia_kg_m2: 0.00149    # I2 about pitch axis from table
+body_yaw_inertia_kg_m2: 0.00149      # no direct data; assume same order as I2
+wheel_inertia_kg_m2: 0.000192        # J about wheel axis from table
 
 # Environment
 gravity_mps2: 9.81              # Earth gravity

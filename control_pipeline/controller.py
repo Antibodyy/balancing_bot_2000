@@ -88,6 +88,8 @@ class BalanceController:
         wheel_radius_m: float,
         track_width_m: float,
         robot_params: RobotParameters,
+        equilibrium_state: Optional[np.ndarray] = None,
+        equilibrium_control: Optional[np.ndarray] = None,
         online_linearization_enabled: bool = False,
         use_simulation_velocity: bool = False,
         use_simulation_heading: bool = False,
@@ -116,6 +118,14 @@ class BalanceController:
         self._use_simulation_heading = use_simulation_heading
         self._true_heading = 0.0
         self._true_yaw_rate = 0.0
+
+        # Store equilibrium operating point (x_eq, u_eq) so MPC works in delta coordinates.
+        if equilibrium_state is None:
+            equilibrium_state = np.zeros(STATE_DIMENSION)
+        if equilibrium_control is None:
+            equilibrium_control = np.zeros(CONTROL_DIMENSION)
+        self._equilibrium_state = np.asarray(equilibrium_state, dtype=float).reshape(STATE_DIMENSION)
+        self._equilibrium_control = np.asarray(equilibrium_control, dtype=float).reshape(CONTROL_DIMENSION)
 
         # Online linearization
         self._robot_params = robot_params
@@ -158,8 +168,10 @@ class BalanceController:
         """
         self._timer.start_iteration()
 
-        # 1. Update state estimate
+        # 1. Update state estimate (absolute coordinates)
         state_estimate = self._estimate_state(sensor_data)
+        # Express deviation from equilibrium for linear MPC
+        state_deviation = state_estimate - self._equilibrium_state
         self._timer.mark_estimation_complete()
 
         # 2. Update linearization if enabled
@@ -167,17 +179,26 @@ class BalanceController:
             self._update_linearization(state_estimate)
 
         # 3. Generate reference trajectory
-        reference_trajectory = self._reference_generator.generate(
+        reference_deviation = self._reference_generator.generate(
             reference_command, state_estimate
         )
+        # The generator's "zero" corresponds to the equilibrium lean,
+        # so the returned values are already deviations in MPC coordinates.
         self._timer.mark_reference_complete()
 
         # 4. Solve MPC
-        mpc_solution = self._mpc_solver.solve(state_estimate, reference_trajectory)
+        mpc_solution = self._mpc_solver.solve(state_deviation, reference_deviation)
         self._timer.mark_solve_complete()
 
         # 4. Extract control
-        optimal_control = mpc_solution.optimal_control
+        optimal_control_delta = mpc_solution.optimal_control
+        # Add equilibrium feed-forward torque so hardware applies u = u_eq + Δu
+        optimal_control = optimal_control_delta + self._equilibrium_control
+
+        # Convert predicted trajectory back to absolute coordinates for logging/plotting
+        predicted_trajectory = (
+            mpc_solution.predicted_trajectory + self._equilibrium_state
+        )
 
         # End timing
         timing = self._timer.end_iteration()
@@ -186,7 +207,7 @@ class BalanceController:
             torque_left_nm=optimal_control[0],
             torque_right_nm=optimal_control[1],
             state_estimate=state_estimate,
-            predicted_trajectory=mpc_solution.predicted_trajectory,
+            predicted_trajectory=predicted_trajectory,
             timing=timing,
             mpc_solution=mpc_solution,
         )

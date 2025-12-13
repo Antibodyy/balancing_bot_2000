@@ -122,6 +122,7 @@ class RobotParameters:
         )
 
 
+
 # Module-level constants for state/control dimensions
 STATE_DIMENSION = 6  # [x, theta, psi, dx, dtheta, dpsi]
 CONTROL_DIMENSION = 2  # [tau_L, tau_R]

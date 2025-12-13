@@ -122,6 +122,9 @@ def load_hardware_mpc(
         sampling_period_s=mpc_config.sampling_period_s,
         wheel_radius_m=robot_params.wheel_radius_m,
         track_width_m=robot_params.track_width_m,
+        robot_params=robot_params,
+        equilibrium_state=eq_state,
+        equilibrium_control=eq_control,
         use_simulation_velocity=False  # Use encoder-based velocity on hardware!
     )
 
@@ -203,5 +206,8 @@ def load_hardware_mpc_with_custom_params(
         sampling_period_s=mpc_config.sampling_period_s,
         wheel_radius_m=robot_params.wheel_radius_m,
         track_width_m=robot_params.track_width_m,
+        robot_params=robot_params,
+        equilibrium_state=eq_state,
+        equilibrium_control=eq_control,
         use_simulation_velocity=False
     )
