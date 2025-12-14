@@ -3,7 +3,7 @@
 
 # Horizon parameters
 prediction_horizon_steps: 30
-sampling_period_s: 0.02  
+sampling_period_s: 0.065  
 
 # Cost function weights (diagonal elements)
 # State: [x, theta, psi, dx, dtheta, dpsi]
@@ -44,4 +44,4 @@ solver_name: 'osqp'
 warm_start_enabled: true
 
 # Online linearization settings
-online_linearization_enabled: true  # Set to true to enable successive linearization at current state
+online_linearization_enabled: false  # Set to true to enable successive linearization at current state

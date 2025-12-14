@@ -408,6 +408,10 @@ class LinearMPCSolver:
         instead of rebuilding the entire optimization problem. This is
         critical for real-time performance in online linearization.
 
+        Warm start is preserved across linearization updates since the
+        dynamics changes are small at high sampling rates (20ms), and the
+        shifted previous solution remains a good initial guess.
+
         Args:
             discrete_dynamics: New discrete-time dynamics (A_d, B_d)
         """
@@ -424,10 +428,6 @@ class LinearMPCSolver:
         # Update numpy copies for reference
         self._state_matrix = discrete_dynamics.state_matrix_discrete
         self._control_matrix = discrete_dynamics.control_matrix_discrete
-
-        # Clear warm start since dynamics changed
-        self._previous_state_solution = None
-        self._previous_control_solution = None
 
         # NO NEED to rebuild problem - parameters handle the update!
 
