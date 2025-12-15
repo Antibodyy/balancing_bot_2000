@@ -39,7 +39,10 @@ parser.add_argument('--initial-pitch', type=float, default=0.0,
                     help='Initial pitch perturbation in degrees (default: 0.0)')
 parser.add_argument('--viewer', action='store_true',
                     help='Run with interactive MuJoCo viewer (runs until closed or robot falls)')
-args = parser.parse_args()
+if __name__ == "__main__":
+    args = parser.parse_args()
+else:
+    args = parser.parse_args([])
 
 # Convert initial pitch to radians
 initial_pitch_rad = np.deg2rad(args.initial_pitch)

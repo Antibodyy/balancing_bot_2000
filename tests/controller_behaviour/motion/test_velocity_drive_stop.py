@@ -8,6 +8,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import argparse
+import os
 import numpy as np
 from simulation import SimulationConfig, MUJOCO_AVAILABLE
 from debug import MPCDiagnostics
@@ -23,7 +24,10 @@ parser.add_argument('--distance', type=float, default=0.5,
                     help='Target distance in m (default: 0.5)')
 parser.add_argument('--stop-time', type=float, default=3.0,
                     help='Time to hold balance after stopping (default: 3.0s)')
-args = parser.parse_args()
+if __name__ == "__main__":
+    args = parser.parse_args()
+else:
+    args = parser.parse_args([])
 
 if args.viewer and not MUJOCO_AVAILABLE:
     print("MuJoCo is not installed. Install with: pip install mujoco")

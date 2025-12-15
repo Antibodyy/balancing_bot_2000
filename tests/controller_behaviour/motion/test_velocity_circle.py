@@ -9,6 +9,7 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "debug"))
 
 import argparse
+import os
 import numpy as np
 from simulation import SimulationConfig, MUJOCO_AVAILABLE
 from debug import mpc_diagnostics
@@ -24,7 +25,10 @@ parser.add_argument('--radius', type=float, default=0.5,
                     help='Circle radius in m (default: 0.5)')
 parser.add_argument('--circles', type=float, default=1.0,
                     help='Number of circles to complete (default: 1.0)')
-args = parser.parse_args()
+if __name__ == "__main__":
+    args = parser.parse_args()
+else:
+    args = parser.parse_args([])
 
 # Calculate duration for specified number of circles
 circle_circumference = 2 * np.pi * args.radius

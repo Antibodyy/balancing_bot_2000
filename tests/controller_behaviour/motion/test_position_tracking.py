@@ -14,11 +14,17 @@ Usage:
 """
 
 import argparse
-from hardware import (
-    load_hardware_mpc,
-    HardwareBalanceController
-)
-from hardware.serial_interface import BalboaSerialInterface  # Import serial interface
+import pytest
+
+try:
+    from hardware import (
+        load_hardware_mpc,
+        HardwareBalanceController
+    )
+    from hardware.serial_interface import BalboaSerialInterface  # Import serial interface
+except ImportError:
+    pytest.skip("hardware control stack not available", allow_module_level=True)
+
 from mpc import ReferenceCommand, ReferenceMode
 
 

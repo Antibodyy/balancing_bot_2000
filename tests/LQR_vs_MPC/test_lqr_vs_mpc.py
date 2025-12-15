@@ -25,7 +25,12 @@ import pytest
 import matplotlib
 matplotlib.use("Agg")  # noqa: E402
 
-from control import dlqr  # python-control package
+try:
+    from control import dlqr  # python-control package
+    CONTROL_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    CONTROL_AVAILABLE = False
+    dlqr = None  # type: ignore
 
 from robot_dynamics.parameters import RobotParameters
 from robot_dynamics.linearization import linearize_at_state, linearize_at_equilibrium
@@ -37,6 +42,8 @@ from LQR.LQR_Dynamics_update import linearize_shared_dynamics, solve_discrete_lq
 
 OUTPUT_DIR = Path("test_and_debug_output/LQR_vs_MPC")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+pytestmark = pytest.mark.skipif(not CONTROL_AVAILABLE, reason="python-control package not installed")
 
 
 def build_lqr_gain(

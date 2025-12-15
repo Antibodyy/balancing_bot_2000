@@ -125,6 +125,12 @@ class SimulationResult:
     model_update_time_history: np.ndarray
     iteration_history: np.ndarray
     reference_history: List[np.ndarray] = field(default_factory=list)
+    pred_state_history: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, STATE_DIMENSION)))
+    true_state_history: np.ndarray = field(default_factory=lambda: np.zeros((0, STATE_DIMENSION)))
+    u_applied_history: np.ndarray = field(default_factory=lambda: np.zeros((0, CONTROL_DIMENSION)))
+    x_lin_history: np.ndarray = field(default_factory=lambda: np.zeros((0, STATE_DIMENSION)))
+    e1_history: np.ndarray = field(default_factory=lambda: np.zeros((0, STATE_DIMENSION)))
+    sample_time_s: float = 0.0
     pitch_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
     velocity_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
     torque_saturation_history: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -196,6 +202,7 @@ class MPCSimulation:
             self._config.robot_params_path
         )
         self._mpc_config = MPCConfig.from_yaml(self._config.mpc_params_path)
+        print(f"Effective Ts = {self._mpc_config.sampling_period_s}")
         self._estimator_config = EstimatorConfig.from_yaml(
             self._config.estimator_params_path
         )
@@ -685,19 +692,25 @@ class MPCSimulation:
             mujoco_steps_per_mpc = int(mpc_period / mujoco_timestep)
         n_mpc_steps = int(duration / mpc_period)
 
-        # Allocate result arrays
-        time_s = np.zeros(n_mpc_steps)
-        state_history = np.zeros((n_mpc_steps, STATE_DIMENSION))
-        control_history = np.zeros((n_mpc_steps, CONTROL_DIMENSION))
-        state_estimate_history = np.zeros((n_mpc_steps, STATE_DIMENSION))
-        qp_solve_time_history = np.zeros(n_mpc_steps)
-        model_update_time_history = np.zeros(n_mpc_steps)
-        iteration_history = np.zeros(n_mpc_steps)
-        pitch_error_history = np.zeros(n_mpc_steps)
-        velocity_error_history = np.zeros(n_mpc_steps)
-        torque_saturation_history = np.zeros(n_mpc_steps, dtype=bool)
-        infeasible_history = np.zeros(n_mpc_steps, dtype=bool)
-        reference_history = []
+        # Allocate history containers
+        time_history: List[float] = []
+        true_state_history: List[np.ndarray] = []
+        state_history: List[np.ndarray] = []
+        control_history: List[np.ndarray] = []
+        state_estimate_history: List[np.ndarray] = []
+        qp_solve_time_history: List[float] = []
+        model_update_time_history: List[float] = []
+        iteration_history: List[float] = []
+        pitch_error_history: List[float] = []
+        velocity_error_history: List[float] = []
+        torque_saturation_history: List[bool] = []
+        infeasible_history: List[bool] = []
+        reference_history: List[np.ndarray] = []
+        pred_state_history: List[np.ndarray] = []
+        u_applied_history: List[np.ndarray] = []
+        x_lin_history: List[np.ndarray] = []
+        e1_history: List[np.ndarray] = []
+        prev_pred: Optional[np.ndarray] = None
 
         # Tracking
         deadline_violations = 0
@@ -725,103 +738,139 @@ class MPCSimulation:
             sensor_data = self._build_sensor_data(sim_time)
 
             state_now = self._extract_state()
+            true_state_history.append(state_now.copy())
             if self._use_virtual_physics:
                 self._controller._true_ground_velocity = state_now[VELOCITY_INDEX]
                 self._controller._true_heading = state_now[YAW_INDEX]
                 self._controller._true_yaw_rate = state_now[YAW_RATE_INDEX]
             else:
-                # FIX: Provide true ground velocity to controller (for simulation mode)
                 self._controller._true_ground_velocity = self._data.qvel[self.FREE_JOINT_VEL_START]
-                # Provide true heading/yaw rate for simulation to bypass encoder yaw errors
                 self._controller._true_heading = state_now[YAW_INDEX]
                 self._controller._true_yaw_rate = self._data.qvel[self.FREE_JOINT_ANGVEL_START + 2]
 
             # Run controller
             output = self._controller.step(sensor_data, command)
+            x_est = output.state_estimate.copy()
+            x_lin = x_est.copy()
 
-            # Log data
-            time_s[step_idx] = sim_time
-            state_history[step_idx] = self._extract_state()
-            control_history[step_idx] = np.array([
-                output.torque_left_nm, output.torque_right_nm
-            ])
-            state_estimate_history[step_idx] = output.state_estimate
-            qp_solve_time_history[step_idx] = output.timing.solve_time_s
-            model_update_time_history[step_idx] = output.timing.model_update_time_s
-            iteration_history[step_idx] = output.mpc_solution.solver_iterations
-            reference_history.append(
-                output.mpc_solution.predicted_trajectory.copy()
-            )
-            pitch_error_history[step_idx] = (
-                state_history[step_idx, PITCH_INDEX] - theta_ref
-            )
+            # Build predicted trajectory and enforce alignment
+            x_pred = output.predicted_trajectory.copy()
+            if x_pred.ndim == 1:
+                x_pred = x_pred[None, :]
+            if x_pred.shape[0] == 0:
+                x_pred = np.zeros((1, STATE_DIMENSION))
+            if x_pred.shape[0] < 1:
+                raise RuntimeError("Predicted trajectory must contain at least current state")
+            if x_pred.shape[1] != STATE_DIMENSION:
+                raise RuntimeError("Predicted trajectory has wrong dimension")
+            original_first = x_pred[0].copy()
+            x_pred[0, :] = x_est
+            if not np.allclose(original_first, x_est, atol=1e-8, rtol=1e-6):
+                print(f"[WARN] x_pred[0] != x_est at step {step_idx}")
+                print("||diff|| =", float(np.linalg.norm(original_first - x_est)))
+                print("x_est      =", x_est)
+                print("x_pred[0]  =", original_first)
+
+            if prev_pred is not None and prev_pred.shape[0] > 1:
+                e1 = prev_pred[1, :] - x_est
+                e1_history.append(e1.copy())
+            prev_pred = x_pred.copy()
+
+            time_history.append(sim_time)
+            state_history.append(x_est.copy())
+            state_estimate_history.append(x_est.copy())
+            qp_solve_time_history.append(output.timing.solve_time_s)
+            model_update_time_history.append(output.timing.model_update_time_s)
+            iteration_history.append(output.mpc_solution.solver_iterations)
+            reference_history.append(output.mpc_solution.predicted_trajectory.copy())
+            pred_state_history.append(x_pred)
+            x_lin_history.append(x_lin)
+
             desired_velocity = 0.0
             if command.mode == ReferenceMode.VELOCITY:
                 desired_velocity = command.velocity_mps
-            velocity_error_history[step_idx] = (
-                state_history[step_idx, VELOCITY_INDEX] - desired_velocity
-            )
-            torque_saturation_history[step_idx] = (
-                abs(output.torque_left_nm) >= control_limit - 1e-6
-                or abs(output.torque_right_nm) >= control_limit - 1e-6
-            )
-            status = (output.mpc_solution.solver_status or "").lower()
-            infeasible_history[step_idx] = status != 'optimal'
+            pitch_error_history.append(state_now[PITCH_INDEX] - theta_ref)
+            velocity_error_history.append(state_now[VELOCITY_INDEX] - desired_velocity)
 
-            # Check deadline violation
+            u_plan = np.array([output.torque_left_nm, output.torque_right_nm])
+            u_applied = np.clip(u_plan, -control_limit, control_limit)
+            u_applied_history.append(u_applied.copy())
+            control_history.append(u_applied.copy())
+            torque_saturation_history.append(
+                bool(np.any(np.abs(u_plan) >= control_limit - 1e-6))
+            )
+
+            status = (output.mpc_solution.solver_status or "").lower()
+            infeasible_history.append(status != "optimal")
+
             if output.timing.total_time_s > mpc_period:
                 deadline_violations += 1
 
-            # Apply control
-            self._apply_control(output.torque_left_nm, output.torque_right_nm)
+            self._apply_control(u_applied[0], u_applied[1])
 
             if self._use_virtual_physics:
-                # Integrate the nonlinear dynamics directly using the requested torques.
                 for _ in range(mujoco_steps_per_mpc):
-                    control_vec = np.array([output.torque_left_nm, output.torque_right_nm])
+                    control_vec = np.array([u_applied[0], u_applied[1]])
                     deriv = compute_state_derivative(self._virtual_state, control_vec, self._robot_params)
                     self._virtual_state += deriv * virtual_dt
             else:
-                # Step MuJoCo for one MPC period
                 for _ in range(mujoco_steps_per_mpc):
                     mujoco.mj_step(self._model, self._data)
 
-            # Check if fallen
-            if self._check_fallen(state_history[step_idx]):
+            if self._check_fallen(state_now):
                 success = False
-                # Truncate arrays
-                time_s = time_s[:step_idx + 1]
-                state_history = state_history[:step_idx + 1]
-                control_history = control_history[:step_idx + 1]
-                state_estimate_history = state_estimate_history[:step_idx + 1]
-                qp_solve_time_history = qp_solve_time_history[:step_idx + 1]
-                model_update_time_history = model_update_time_history[:step_idx + 1]
-                iteration_history = iteration_history[:step_idx + 1]
-                pitch_error_history = pitch_error_history[:step_idx + 1]
-                velocity_error_history = velocity_error_history[:step_idx + 1]
-                torque_saturation_history = torque_saturation_history[:step_idx + 1]
-                infeasible_history = infeasible_history[:step_idx + 1]
                 break
 
         wall_duration = time.perf_counter() - wall_start
 
+        def _to_array(seq: List[Any], shape: Tuple[int, ...]) -> np.ndarray:
+            if not seq:
+                return np.zeros(shape)
+            return np.asarray(seq)
+
+        time_s = np.asarray(time_history)
+        state_history_arr = _to_array(state_history, (0, STATE_DIMENSION))
+        true_state_history_arr = _to_array(true_state_history, (0, STATE_DIMENSION))
+        control_history_arr = _to_array(control_history, (0, CONTROL_DIMENSION))
+        state_estimate_history_arr = _to_array(state_estimate_history, (0, STATE_DIMENSION))
+        qp_solve_arr = _to_array(qp_solve_time_history, (0,))
+        model_update_arr = _to_array(model_update_time_history, (0,))
+        iteration_arr = _to_array(iteration_history, (0,))
+        pitch_error_arr = _to_array(pitch_error_history, (0,))
+        velocity_error_arr = _to_array(velocity_error_history, (0,))
+        torque_saturation_arr = np.asarray(torque_saturation_history, dtype=bool)
+        infeasible_arr = np.asarray(infeasible_history, dtype=bool)
+        pred_state_arr = _to_array(pred_state_history, (0, self._mpc_config.prediction_horizon_steps + 1, STATE_DIMENSION))
+        u_applied_arr = _to_array(u_applied_history, (0, CONTROL_DIMENSION))
+        x_lin_arr = _to_array(x_lin_history, (0, STATE_DIMENSION))
+        e1_arr = _to_array(e1_history, (0, STATE_DIMENSION))
+
+        mean_qp = float(np.mean(qp_solve_arr) * 1000) if qp_solve_arr.size else 0.0
+        max_qp = float(np.max(qp_solve_arr) * 1000) if qp_solve_arr.size else 0.0
+
         return SimulationResult(
             time_s=time_s,
-            state_history=state_history,
-            control_history=control_history,
-            state_estimate_history=state_estimate_history,
-            qp_solve_time_history=qp_solve_time_history,
-            model_update_time_history=model_update_time_history,
-            iteration_history=iteration_history,
+            state_history=state_history_arr,
+            control_history=control_history_arr,
+            state_estimate_history=state_estimate_history_arr,
+            qp_solve_time_history=qp_solve_arr,
+            model_update_time_history=model_update_arr,
+            iteration_history=iteration_arr,
             reference_history=reference_history,
-            pitch_error_history=pitch_error_history,
-            velocity_error_history=velocity_error_history,
-            torque_saturation_history=torque_saturation_history,
-            infeasible_history=infeasible_history,
+            pred_state_history=pred_state_arr,
+            true_state_history=true_state_history_arr,
+            u_applied_history=u_applied_arr,
+            x_lin_history=x_lin_arr,
+            e1_history=e1_arr,
+            sample_time_s=mpc_period,
+            pitch_error_history=pitch_error_arr,
+            velocity_error_history=velocity_error_arr,
+            torque_saturation_history=torque_saturation_arr,
+            infeasible_history=infeasible_arr,
             success=success,
             total_duration_s=wall_duration,
-            mean_qp_solve_time_ms=np.mean(qp_solve_time_history) * 1000,
-            max_qp_solve_time_ms=np.max(qp_solve_time_history) * 1000,
+            mean_qp_solve_time_ms=mean_qp,
+            max_qp_solve_time_ms=max_qp,
             deadline_violations=deadline_violations,
         )
 

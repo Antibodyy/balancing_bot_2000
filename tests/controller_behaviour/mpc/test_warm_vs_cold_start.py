@@ -5,7 +5,7 @@ This test builds two MPC configurations that are identical except for
 `warm_start_enabled` (toggled the same way you would in config/simulation/mpc_params.yaml).
 Both runs start from the same 0.12 rad pitch offset and experience a demanding
 three-stage reference: balance → accelerate forward → brake back to zero velocity.
-The MPC horizon is expanded to N=60 with Ts=0.02 s in order to magnify the solve-time
+The MPC horizon is expanded to N=60 with Ts=0.065 s in order to magnify the solve-time
 benefit of warm-starting while still running successive (online) linearization.
 The warm-start configuration keeps the previous solution even when the dynamics
 are re-linearized each step so we measure a realistic benefit for the paper.
@@ -80,7 +80,7 @@ def _write_temp_config(base: MPCConfig, warm_start: bool) -> str:
     """Create a temporary YAML with only warm-start toggled (mimics flipping the config line)."""
     # Keep user-configured values for everything else; assert required horizon/Ts
     assert base.prediction_horizon_steps == 30, "Test expects N=30"
-    assert abs(base.sampling_period_s - 0.02) < 1e-6, "Test expects Ts=0.02s"
+    assert abs(base.sampling_period_s - 0.065) < 1e-6, "Test expects Ts=0.065s"
 
     cfg = replace(
         base,
@@ -217,7 +217,7 @@ def _plot_results(cold_res, warm_res, cold_metrics, warm_metrics) -> None:
     plt.figure(figsize=(9, 4))
     plt.plot(cold_res.time_s, cold_res.qp_solve_time_history * 1e3, label="Cold start", marker="o", markersize=3)
     plt.plot(warm_res.time_s, warm_res.qp_solve_time_history * 1e3, label="Warm start", marker="o", markersize=3)
-    plt.axhline(20, color="r", linestyle="--", label="Ts = 20 ms")
+    plt.axhline(65, color="r", linestyle=":", label="Ts (65 ms)")
     plt.xlabel("Time (s)")
     plt.ylabel("Solve time (ms)")
     plt.title("MPC solve time: cold vs warm start")

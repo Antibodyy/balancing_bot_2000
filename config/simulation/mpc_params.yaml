@@ -3,7 +3,7 @@
 
 # Horizon parameters
 prediction_horizon_steps: 30
-sampling_period_s: 0.02  
+sampling_period_s: 0.065
 
 # Cost function weights (diagonal elements)
 # State: [x, theta, psi, dx, dtheta, dpsi]

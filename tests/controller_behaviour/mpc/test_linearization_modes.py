@@ -23,6 +23,7 @@ import pytest
 import yaml
 import random
 
+from matplotlib.lines import Line2D
 from mpc import MPCConfig, ReferenceCommand, ReferenceMode
 from robot_dynamics.parameters import PITCH_INDEX, VELOCITY_INDEX
 from simulation import MPCSimulation, SimulationConfig, MUJOCO_AVAILABLE
@@ -30,7 +31,7 @@ from simulation import MPCSimulation, SimulationConfig, MUJOCO_AVAILABLE
 OUTPUT_DIR = Path("test_and_debug_output/linearization_modes")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-SLOPES_DEG = [0.0, 5.0, 10.0]
+SLOPES_DEG = [0.0, 5.0, 10.0, 15.466, 15.467]
 LINEARIZATION_MODES = {
     "objective": False,
     "relative": True,
@@ -40,7 +41,7 @@ MODE_LABELS = {
     "relative": "Relative linearization (online A,B updates)",
 }
 SEED = 12345
-TS_MS = 20.0
+TS_MS = 65.0
 USE_VIRTUAL_PHYSICS = True
 TRIM_CUTOFF_S = 0.2
 
@@ -71,7 +72,7 @@ def _make_reference_profile(slope_rad: float):
 def _write_robot_params_with_slope(base_yaml: str, slope_deg: float) -> str:
     params = yaml.safe_load(Path(base_yaml).read_text())
     params["ground_slope_rad"] = math.radians(slope_deg)
-    tmp = OUTPUT_DIR / f"robot_params_slope_{slope_deg:.1f}.yaml"
+    tmp = OUTPUT_DIR / f"robot_params_slope_{slope_deg:.3f}.yaml"
     with tmp.open("w") as fh:
         yaml.safe_dump(params, fh)
     return str(tmp)
@@ -123,7 +124,7 @@ def _run_case(
     online_linearization: bool,
 ) -> Tuple[Dict[str, float], MPCSimulation]:
     slope_rad = math.radians(slope_deg)
-    cfg_path = _write_temp_config(base_cfg, f"{mode_key}_slope_{slope_deg:.1f}", online_linearization)
+    cfg_path = _write_temp_config(base_cfg, f"{mode_key}_slope_{slope_deg:.3f}", online_linearization)
     sim_cfg = SimulationConfig(
         model_path="mujoco_sim/robot_model.xml",
         robot_params_path=robot_params_path,
@@ -207,7 +208,7 @@ def _plot_timeseries(
     results: Dict[str, MPCSimulation],
 ) -> None:
     fig, axes = plt.subplots(4, 1, figsize=(10, 9), sharex=True)
-    axes[0].set_title(f"Slope {slope_deg:.1f}° – pitch error")
+    axes[0].set_title(f"Slope {slope_deg:.3f}° – pitch error")
     for mode_key, result in results.items():
         label = MODE_LABELS[mode_key]
         axes[0].plot(result.time_s, result.pitch_error_history, label=label)
@@ -242,14 +243,14 @@ def _plot_timeseries(
     axes[3].set_title("QP solve time")
     for mode_key, result in results.items():
         axes[3].plot(result.time_s, result.filtered_qp_ms, label=MODE_LABELS[mode_key])
-    axes[3].axhline(TS_MS, color="r", linestyle="--", label="Deadline (20 ms)")
+    axes[3].axhline(TS_MS, color="r", linestyle=":", label="Ts (65 ms)")
     axes[3].set_ylabel("ms")
     axes[3].set_xlabel("Time (s)")
     axes[3].grid(True, alpha=0.3)
     axes[3].legend()
 
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_timeseries.png", dpi=150)
+    fig.savefig(OUTPUT_DIR / f"slope_{slope_deg:.3f}_timeseries.png", dpi=150)
     plt.close(fig)
 
 
@@ -271,11 +272,11 @@ def _plot_tracking_overlays(
     )
     plt.xlabel("Time (s)")
     plt.ylabel("Pitch (rad)")
-    plt.title(f"Pitch tracking — slope {slope_deg:.1f}°")
+    plt.title(f"Pitch tracking — slope {slope_deg:.3f}°")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_pitch.png", dpi=150)
+    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.3f}_pitch.png", dpi=150)
     plt.close()
 
     plt.figure(figsize=(9, 4))
@@ -290,12 +291,229 @@ def _plot_tracking_overlays(
         plt.plot(result.time_s, result.state_history[:, VELOCITY_INDEX], label=MODE_LABELS[mode_key])
     plt.xlabel("Time (s)")
     plt.ylabel("Velocity (m/s)")
-    plt.title(f"Velocity tracking — slope {slope_deg:.1f}°")
+    plt.title(f"Velocity tracking — slope {slope_deg:.3f}°")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_velocity.png", dpi=150)
+    plt.savefig(OUTPUT_DIR / f"slope_{slope_deg:.3f}_velocity.png", dpi=150)
     plt.close()
+
+
+def _one_step_rms(result: MPCSimulation, idx: int) -> float:
+    """Compute RMS error between 1-step prediction and actual state."""
+    pred = np.asarray(getattr(result, "pred_state_history", None))
+    actual = np.asarray(result.state_history)
+    if pred is None or pred.ndim != 3 or pred.shape[0] < 2:
+        return float("nan")
+    pred_1 = pred[:-1, 1, idx]
+    actual_1 = actual[1:, idx]
+    if pred_1.size == 0 or actual_1.size == 0:
+        return float("nan")
+    err = pred_1 - actual_1
+    return float(np.sqrt(np.mean(err**2)))
+
+
+def _print_e1_stats(mode_label: str, result: MPCSimulation) -> None:
+    e1 = np.asarray(getattr(result, "e1_history", None))
+    if e1 is None or e1.ndim != 2 or e1.size == 0:
+        print(f"[DEBUG] {mode_label}: 1-step error unavailable")
+        return
+    norms = np.linalg.norm(e1, axis=1)
+    if norms.size == 0:
+        print(f"[DEBUG] {mode_label}: 1-step error unavailable")
+        return
+    mean_val = float(np.mean(norms))
+    p95_val = float(np.percentile(norms, 95))
+    max_val = float(np.max(norms))
+    print(
+        f"[DEBUG] {mode_label}: 1-step error mean={mean_val:.6f}, "
+        f"p95={p95_val:.6f}, max={max_val:.6f}"
+    )
+
+
+def plot_predicted_vs_actual(
+    slope_deg: float,
+    results: Dict[str, MPCSimulation],
+    pitch_index: int,
+    velocity_index: int,
+    outdir: Path,
+    step_stride: int = 20,
+) -> None:
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+    fig.suptitle(f"Slope {slope_deg:.3f}° — objective vs relative predictions", y=0.98)
+
+    pitch_handles: List[Line2D] = []
+    vel_handles: List[Line2D] = []
+
+    for mode_idx, (mode_key, result) in enumerate(results.items()):
+        mode_label = MODE_LABELS[mode_key]
+        t = np.asarray(result.time_s)
+        X = np.asarray(result.state_history)
+        Xpred = np.asarray(getattr(result, "pred_state_history", None))
+        if Xpred is None or Xpred.ndim != 3 or t.size == 0 or Xpred.shape[1] < 2:
+            continue
+
+        if not np.allclose(Xpred[:, 0, :], X, atol=1e-8, rtol=1e-6):
+            raise AssertionError("pred_state_history[:,0,:] must equal state_history")
+
+        Ts = float(getattr(result, "sample_time_s", 0.0) or 0.0)
+        if Ts <= 0.0:
+            dt = np.diff(t)
+            Ts = float(np.median(dt if dt.size > 0 else [1.0]))
+        j_grid = np.arange(Xpred.shape[1]) * Ts
+        color = f"C{mode_idx}"
+
+        ax = axes[0]
+        actual_line, = ax.plot(t, X[:, pitch_index], linewidth=2.0, color=color, label=f"{mode_label} actual")
+        pred_line = None
+        for k in range(0, t.shape[0], step_stride):
+            t_pred = t[k] + j_grid
+            x_pred = Xpred[k, :, pitch_index]
+            mask = t_pred <= t[-1]
+            ax.plot(t_pred[mask], x_pred[mask], color=color, alpha=0.25, linewidth=1.0)
+            if pred_line is None and mask.any():
+                pred_line = Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    alpha=0.4,
+                    linewidth=1.5,
+                    label=f"{mode_label} predicted (every {step_stride} steps)",
+                )
+        if pred_line is not None:
+            pitch_handles.extend([actual_line, pred_line])
+        else:
+            pitch_handles.append(actual_line)
+
+        ax = axes[1]
+        actual_line, = ax.plot(t, X[:, velocity_index], linewidth=2.0, color=color, label=f"{mode_label} actual")
+        pred_line = None
+        for k in range(0, t.shape[0], step_stride):
+            t_pred = t[k] + j_grid
+            v_pred = Xpred[k, :, velocity_index]
+            mask = t_pred <= t[-1]
+            ax.plot(t_pred[mask], v_pred[mask], color=color, alpha=0.25, linewidth=1.0)
+            if pred_line is None and mask.any():
+                pred_line = Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    alpha=0.4,
+                    linewidth=1.5,
+                    label=f"{mode_label} predicted (every {step_stride} steps)",
+                )
+        if pred_line is not None:
+            vel_handles.extend([actual_line, pred_line])
+        else:
+            vel_handles.append(actual_line)
+
+        pitch_rms = _one_step_rms(result, pitch_index)
+        vel_rms = _one_step_rms(result, velocity_index)
+        print(
+            f"Slope {slope_deg:.3f}°, {mode_label}: 1-step RMS pitch={pitch_rms:.4f} rad,"
+            f" velocity={vel_rms:.4f} m/s"
+        )
+        _print_e1_stats(mode_label, result)
+
+    axes[0].set_ylabel("Pitch (rad)")
+    axes[0].grid(True, alpha=0.3)
+    if pitch_handles:
+        axes[0].legend(handles=pitch_handles, loc="upper left", fontsize=8)
+    axes[0].set_title("Pitch — actual vs MPC predictions (every Nth step)")
+
+    axes[1].set_ylabel("Velocity (m/s)")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].grid(True, alpha=0.3)
+    if vel_handles:
+        axes[1].legend(handles=vel_handles, loc="upper left", fontsize=8)
+    axes[1].set_title("Velocity — actual vs MPC predictions (every Nth step)")
+
+    fig.tight_layout()
+    fig.savefig(outdir / f"pred_vs_actual_slope_{slope_deg:.3f}.png", dpi=150)
+    plt.close(fig)
+
+
+def _plot_predicted_vs_actual_single(
+    slope_deg: float,
+    mode_key: str,
+    result: MPCSimulation,
+    pitch_index: int,
+    velocity_index: int,
+    outdir: Path,
+    step_stride: int = 20,
+) -> None:
+    mode_label = MODE_LABELS[mode_key]
+    t = np.asarray(result.time_s)
+    X = np.asarray(result.state_history)
+    Xpred = np.asarray(getattr(result, "pred_state_history", None))
+    if Xpred is None or Xpred.ndim != 3 or t.size == 0 or Xpred.shape[1] < 2:
+        return
+    if not np.allclose(Xpred[:, 0, :], X, atol=1e-8, rtol=1e-6):
+        raise AssertionError("pred_state_history[:,0,:] must equal state_history")
+
+    Ts = float(getattr(result, "sample_time_s", 0.0) or 0.0)
+    if Ts <= 0.0:
+        dt = np.diff(t)
+        Ts = float(np.median(dt if dt.size > 0 else [1.0]))
+    j_grid = np.arange(Xpred.shape[1]) * Ts
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    fig.suptitle(f"Slope {slope_deg:.3f}° — {mode_label}", y=0.97)
+
+    ax = axes[0]
+    actual_pitch_line, = ax.plot(t, X[:, pitch_index], linewidth=2.0, label="Actual")
+    pred_handle = None
+    for k in range(0, t.shape[0], step_stride):
+        t_pred = t[k] + j_grid
+        x_pred = Xpred[k, :, pitch_index]
+        mask = t_pred <= t[-1]
+        line, = ax.plot(t_pred[mask], x_pred[mask], alpha=0.3, linewidth=1.0)
+        if pred_handle is None and mask.any():
+            pred_handle = Line2D(
+                [0],
+                [0],
+                color=line.get_color(),
+                alpha=0.4,
+                linewidth=1.5,
+                label="Predicted",
+            )
+    ax.set_ylabel("Pitch (rad)")
+    ax.grid(True, alpha=0.3)
+    if pred_handle is not None:
+        ax.legend(handles=[actual_pitch_line, pred_handle], loc="upper left", fontsize=8)
+    else:
+        ax.legend(loc="upper left", fontsize=8)
+    ax.set_title("Pitch — actual vs MPC predictions")
+
+    ax = axes[1]
+    actual_vel_line, = ax.plot(t, X[:, velocity_index], linewidth=2.0, label="Actual")
+    pred_handle = None
+    for k in range(0, t.shape[0], step_stride):
+        t_pred = t[k] + j_grid
+        v_pred = Xpred[k, :, velocity_index]
+        mask = t_pred <= t[-1]
+        line, = ax.plot(t_pred[mask], v_pred[mask], alpha=0.3, linewidth=1.0)
+        if pred_handle is None and mask.any():
+            pred_handle = Line2D(
+                [0],
+                [0],
+                color=line.get_color(),
+                alpha=0.4,
+                linewidth=1.5,
+                label="Predicted",
+            )
+    ax.set_ylabel("Velocity (m/s)")
+    ax.set_xlabel("Time (s)")
+    ax.grid(True, alpha=0.3)
+    if pred_handle is not None:
+        ax.legend(handles=[actual_vel_line, pred_handle], loc="upper left", fontsize=8)
+    else:
+        ax.legend(loc="upper left", fontsize=8)
+    ax.set_title("Velocity — actual vs MPC predictions")
+
+    fig.tight_layout()
+    fig.savefig(outdir / f"pred_vs_actual_slope_{slope_deg:.3f}_{mode_key}.png", dpi=150)
+    plt.close(fig)
 
 
 def _plot_bar_chart(
@@ -317,11 +535,11 @@ def _plot_bar_chart(
     ax.bar(x - width / 2, objective_vals, width, label="Objective")
     ax.bar(x + width / 2, relative_vals, width, label="Relative")
     ax.set_xticks(x, [name for name, _ in categories], rotation=15)
-    ax.set_title(f"Slope {slope_deg:.1f}° aggregated metrics")
+    ax.set_title(f"Slope {slope_deg:.3f}° aggregated metrics")
     ax.grid(axis="y", alpha=0.3)
     ax.legend()
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / f"slope_{slope_deg:.1f}_bar.png", dpi=150)
+    fig.savefig(OUTPUT_DIR / f"slope_{slope_deg:.3f}_bar.png", dpi=150)
     plt.close(fig)
 
 
@@ -348,7 +566,7 @@ def _plot_summary_figures(
     )
     plt.xlabel("Time (s)")
     plt.ylabel("Pitch (rad)")
-    plt.title(f"Pitch comparison (slope {base_slope:.1f}°)")
+    plt.title(f"Pitch comparison (slope {base_slope:.3f}°)")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -359,10 +577,10 @@ def _plot_summary_figures(
     for mode_key, result in base_results.items():
         label = MODE_LABELS[mode_key]
         plt.plot(result.time_s, result.filtered_qp_ms, label=label)
-    plt.axhline(TS_MS, color="r", linestyle="--", label="Deadline (20 ms)")
+    plt.axhline(TS_MS, color="r", linestyle=":", label="Ts (65 ms)")
     plt.xlabel("Time (s)")
     plt.ylabel("QP solve (ms)")
-    plt.title(f"Solve time comparison (slope {base_slope:.1f}°)")
+    plt.title(f"Solve time comparison (slope {base_slope:.3f}°)")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -382,7 +600,7 @@ def _plot_summary_figures(
     ax.bar(x - width / 2, objective_vals, width, label="Objective")
     ax.bar(x + width / 2, relative_vals, width, label="Relative")
     ax.set_xticks(x, [name for name, _ in categories], rotation=10)
-    ax.set_title(f"Metrics comparison (slope {base_slope:.1f}°)")
+    ax.set_title(f"Metrics comparison (slope {base_slope:.3f}°)")
     ax.grid(axis="y", alpha=0.3)
     ax.legend()
     fig.tight_layout()
@@ -412,6 +630,24 @@ def test_objective_vs_relative_linearization():
         _plot_timeseries(slope_deg, slope_results)
         _plot_tracking_overlays(slope_deg, slope_results)
         _plot_bar_chart(slope_deg, metrics_by_slope[slope_deg])
+        for mode_key in LINEARIZATION_MODES:
+            _plot_predicted_vs_actual_single(
+                slope_deg=slope_deg,
+                mode_key=mode_key,
+                result=slope_results[mode_key],
+                pitch_index=PITCH_INDEX,
+                velocity_index=VELOCITY_INDEX,
+                outdir=OUTPUT_DIR,
+                step_stride=20,
+            )
+        plot_predicted_vs_actual(
+            slope_deg=slope_deg,
+            results=slope_results,
+            pitch_index=PITCH_INDEX,
+            velocity_index=VELOCITY_INDEX,
+            outdir=OUTPUT_DIR,
+            step_stride=20,
+        )
     _plot_summary_figures(plot_results, metrics_by_slope)
 
     csv_path = OUTPUT_DIR / "linearization_metrics.csv"

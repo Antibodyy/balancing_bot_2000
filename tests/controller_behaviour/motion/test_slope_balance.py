@@ -251,7 +251,7 @@ def _plot_comparison(runs: List[Dict]) -> None:
     for (slope_deg, result, _), color in zip(runs, colors):
         plt.plot(result.time_s, result.solve_time_history * 1e3,
                  label=f"{slope_deg:.0f} deg", color=color, marker="o", markersize=3)
-    plt.axhline(20, color="r", linestyle="--", label="Ts = 20 ms")
+    plt.axhline(65, color="r", linestyle=":", label="Ts (65 ms)")
     plt.xlabel("Time (s)")
     plt.ylabel("Solve time (ms)")
     plt.title("MPC solve time across slopes")
