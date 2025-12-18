@@ -11,11 +11,11 @@ Sensors → State Estimation → Reference Generation → MPC Solver → Control
 ```
 
 **Key Specifications:**
-- Control rate: 50 Hz (20ms period)
+- Control rate: 16 Hz (65ms period)
 - MPC solve time: ~8-12ms (warm-started), ~200ms (cold start)
 - State dimension: 6 (position, pitch, yaw, velocity, pitch rate, yaw rate)
 - Control dimension: 2 (left/right wheel torques)
-- Prediction horizon: 20 steps (400ms lookahead)
+- Prediction horizon: 20 steps (1.3s lookahead)
 
 ## Architecture
 
@@ -155,7 +155,7 @@ from state_estimation import ComplementaryFilter
 
 filter = ComplementaryFilter(
     time_constant_s=0.1,
-    sampling_period_s=0.02,
+    sampling_period_s=0.065,
 )
 
 pitch = filter.update(imu_reading)
@@ -177,7 +177,7 @@ Generates reference trajectories for different modes:
 from mpc import ReferenceGenerator, ReferenceCommand, ReferenceMode
 
 ref_gen = ReferenceGenerator(
-    sampling_period_s=0.02,
+    sampling_period_s=0.065,
     prediction_horizon_steps=20,
 )
 
@@ -214,7 +214,7 @@ controller = BalanceController(
     mpc_solver=solver,
     state_estimator=estimator,
     reference_generator=ref_gen,
-    sampling_period_s=0.02,
+    sampling_period_s=0.065,
     wheel_radius_m=0.05,
     track_width_m=0.3,
     robot_params=robot_params,
@@ -232,7 +232,7 @@ output = controller.step(sensor_data, reference_command)
 
 ```yaml
 prediction_horizon_steps: 20
-sampling_period_s: 0.02
+sampling_period_s: 0.065
 
 state_cost_diagonal: [1.0, 100.0, 10.0, 1.0, 10.0, 1.0]
 control_cost_diagonal: [0.1, 0.1]
@@ -250,7 +250,7 @@ warm_start_enabled: true
 
 ```yaml
 complementary_filter_time_constant_s: 0.1
-sampling_period_s: 0.02
+sampling_period_s: 0.065
 ```
 
 ## Performance
@@ -263,7 +263,7 @@ sampling_period_s: 0.02
 | Subsequent solves (warm) | ~8-12ms |
 | State estimation | <0.1ms |
 | Reference generation | <0.1ms |
-| Total loop time | ~10-15ms |
+| Total loop time | ~10-15ms (within 65ms budget) |
 
 ### Test Coverage
 

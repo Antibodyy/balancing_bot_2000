@@ -1,0 +1,14 @@
+\section{Limitations of Linear MPC in BALANCE Mode}
+One of the stated objectives of this project was to evaluate how far a constrained \emph{linear} MPC formulation could be pushed on the balancing task before the limitations of the approximation became dominant. The BALANCE regression highlights a fundamental shortcoming: even after introducing mode-specific terminal cost shaping and explicit terminal constraints, the controller continues to exhibit forward-velocity drift when the robot is released from a $3^\circ$ pitch perturbation. The drift manifests consistently at $t \approx 2.1~\mathrm{s}$ with $\theta \approx 0.52~\mathrm{rad}$ while the OSQP-based solver reports ``optimal'' and no numerical failures are observed. In other words, the optimizer is solving the prescribed quadratic program correctly, yet the plan it returns allows a small but sustained acceleration that eventually violates the $\lvert dx \rvert \leq 0.5~\mathrm{m/s}$ success criterion.
+
+We attempted several mitigations—extending the horizon from 30 to 40 steps, enabling online linearization about the equilibrium torque instead of a zero-torque operating point, and aggressively tightening the terminal velocity/pitch constraints with corresponding increases in the terminal cost matrix. None of these adjustments altered the qualitative behavior. This points to a structural limitation of a linearized MPC around an unstable equilibrium: once the true state takes the system far enough from the linearization point (here, $\theta \approx 0.5~\mathrm{rad}$), the quadratic model underestimates the corrective effort required and naturally selects ``coasting'' solutions that remain feasible yet undesirable. Figure~\ref{fig:balance-drift} plots the true velocity, pitch, and torque bias during the regression and visually illustrates the uncontrolled drift that emerges roughly two seconds into the experiment.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{img/balance_failure_analysis.png}
+    \caption{Velocity and pitch traces for the BALANCE regression. Despite optimal solves, the linear MPC permits forward drift when recovering from a $3^\circ$ disturbance.}
+    \label{fig:balance-drift}
+\end{figure}
+
+\paragraph*{Future Work}
+A natural next step is to evaluate nonlinear MPC that retains the full dynamics during prediction, or to incorporate capture-point/momentum-based constraints that explicitly bound the allowable center-of-mass motion during balance recovery. Hybrid approaches that blend linear MPC with a supervisory controller capable of switching to energy-shaping or impulse-based strategies during large disturbances may also mitigate the observed drift. These avenues lie beyond the scope of the current study but represent promising directions for future investigation.

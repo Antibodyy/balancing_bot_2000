@@ -34,6 +34,7 @@ class MPCConfig:
         control_cost_diagonal: R matrix diagonal elements (2,)
         pitch_limit_rad: Maximum allowed pitch angle |theta|
         pitch_rate_limit_radps: Maximum allowed pitch rate |theta_dot|
+        velocity_limit_mps: Optional forward velocity constraint |dx|
         control_limit_nm: Maximum allowed control torque |tau|
         use_terminal_cost_dare: If True, compute P via discrete ARE
         terminal_cost_scale: Scaling factor for terminal cost P
@@ -46,6 +47,8 @@ class MPCConfig:
         preserve_warm_start_on_linearization: Keep the previous MPC solution as the
             initial guess even when the dynamics matrices are refreshed online.
             Disabled by default to preserve legacy behaviour.
+        velocity_limit_mps: Optional forward-velocity bound
+        velocity_limit_slack_weight: Penalty weight for velocity limit slack variables
     """
     # Horizon parameters
     prediction_horizon_steps: int
@@ -69,6 +72,8 @@ class MPCConfig:
     # Solver settings
     solver_name: str
     warm_start_enabled: bool
+    velocity_limit_mps: Optional[float] = None
+    velocity_limit_slack_weight: float = 1e4
 
     # Terminal state constraints (optional - applied in addition to state constraints at step N)
     terminal_pitch_limit_rad: Optional[float] = None
@@ -97,6 +102,9 @@ class MPCConfig:
         validate_positive(self.pitch_limit_rad, 'pitch_limit_rad')
         validate_positive(self.pitch_rate_limit_radps, 'pitch_rate_limit_radps')
         validate_positive(self.control_limit_nm, 'control_limit_nm')
+        if self.velocity_limit_mps is not None:
+            validate_positive(self.velocity_limit_mps, 'velocity_limit_mps')
+        validate_positive(self.velocity_limit_slack_weight, 'velocity_limit_slack_weight')
 
         # Terminal cost
         validate_positive(self.terminal_cost_scale, 'terminal_cost_scale')
@@ -145,6 +153,8 @@ class MPCConfig:
             control_cost_diagonal=tuple(config['control_cost_diagonal']),
             pitch_limit_rad=config['pitch_limit_rad'],
             pitch_rate_limit_radps=config['pitch_rate_limit_radps'],
+            velocity_limit_mps=config.get('velocity_limit_mps', None),
+            velocity_limit_slack_weight=config.get('velocity_limit_slack_weight', 1e4),
             control_limit_nm=config['control_limit_nm'],
             use_terminal_cost_dare=config['use_terminal_cost_dare'],
             terminal_cost_scale=config.get('terminal_cost_scale', 1.0),

@@ -190,7 +190,7 @@ This requires:
 
 **Workaround:** Since yaw acceleration is 61x slower, the MPC needs more time to achieve yaw rates.
 
-Increase prediction horizon: 40 steps → 240 steps (still ~5s at 20ms sampling)
+Increase prediction horizon: 40 steps → 240 steps (≈15.6s at 65ms sampling)
 
 **Pros:** No model changes needed
 **Cons:** 6x more computation, may violate real-time constraints
@@ -216,7 +216,7 @@ Despite yaw tracking limitations:
 ✓ **Velocity tracking**: Near-perfect (0.4% error)
 ✓ **Position tracking**: Accurate (traveled 3.058m vs expected 3.142m)
 ✓ **Stability**: No falls, very smooth motion
-✓ **Computational performance**: 13ms solve time (well under 20ms deadline)
+✓ **Computational performance**: 13ms solve time (well under 65ms budget)
 
 The system excels at its primary objective (balancing) and forward motion control. Circular motion just pushes beyond the linear model's validity region.
 

@@ -97,8 +97,8 @@ Tests long-duration stability (10 seconds) from various initial conditions.
 
 **Verifies:**
 - Pitch drift < 1° over 10 seconds
-- Mean solve time < 20ms
-- Zero deadline violations
+- Mean solve time < 65ms (16 Hz budget)
+- Zero deadline violations relative to the 65ms period
 - Velocity estimation accuracy maintained
 
 #### test_dynamics_validation.py
@@ -270,7 +270,7 @@ Comprehensive closed-loop diagnostic.
 - Positive pitch → Positive torque
 
 **Panel 5:** MPC solve time
-- Should be < 20ms for 50Hz control
+- Should be < 65ms for 16Hz control
 - Spikes indicate solver struggling
 
 **Panel 6:** Prediction error
@@ -289,12 +289,12 @@ MPC prediction accuracy visualization.
 ```
 Step   Time   True θ      Est θ      τ_L      τ_R    τ_total    Solve
    0  0.000     2.8648     2.8648   0.1861   0.1861   0.3722     12.3
-   1  0.020     2.7935     2.7577   0.1883   0.1883   0.3765      8.5
+   1  0.065     2.7935     2.7577   0.1883   0.1883   0.3765      8.5
 ```
 
 **Check for:**
 - Sign consistency: Positive pitch → Positive torque
-- Solve time: Should be < 20ms for 50Hz control
+- Solve time: Should be < 65ms for 16Hz control
 - Estimation accuracy: Est θ should track True θ
 
 ### Diagnostic Summary
@@ -318,7 +318,7 @@ Prediction Accuracy:
   Max 1-step error:     45.678 mrad
 
 Timing:
-  Mean solve time:      9.2 ms       # Should be < 20ms
+  Mean solve time:      9.2 ms       # Should be < 65ms
   Max solve time:       15.3 ms
 
 Outcome:
@@ -363,7 +363,7 @@ Outcome:
 ### Pattern 4: Performance Issues
 
 **Symptoms:**
-- Solve time > 20ms frequently
+- Solve time > 65ms frequently
 - Deadline violations
 - Falls in viewer mode but works headless
 

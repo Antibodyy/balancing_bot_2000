@@ -1,0 +1,50 @@
+\section*{Motivation}
+Two-wheeled inverted pendulum (TWIP) robots combine an unstable nonlinear plant with
+strict actuator limits, making them ideal benchmarks for advanced control.
+Classical LQR control stabilizes the upright equilibrium but struggles once slopes,
+trajectory tracking, or torque saturation enter the picture. Our project revisits
+this platform with modern tooling: a MuJoCo-based digital twin, CasADi-powered
+model predictive control (MPC), and a hardware stack built on the Pololu Balboa
+32U4 and Raspberry Pi 4.
+
+\section*{Project Goals}
+We established four goals at the outset:
+\begin{enumerate}[leftmargin=*]
+    \item Develop a validated sixth-order dynamics model that captures slope
+          effects and actuator torque limits while remaining tractable for
+          real-time MPC.
+    \item Implement an MPC controller that runs at 16~Hz, enforces constraints,
+          and tracks velocity/heading references in simulation.
+    \item Compare MPC performance against an LQR baseline across balancing,
+          drive-stop, and trajectory-following scenarios to quantify the benefit
+          of constraint handling.
+    \item Exercise the same control stack on hardware, including the safety
+          interlocks and serial interface required for laboratory testing.
+\end{enumerate}
+
+\section*{Completed Work}
+The current report documents the pieces we have finished so far:
+\begin{itemize}[leftmargin=*]
+    \item A simplified yet slope-aware nonlinear model derived with CasADi that
+          omits high-frequency wheel gyroscopic coupling for computational
+          efficiency, along with analytical linearization and discretization
+          routines.
+    \item A linear MPC implementation with configurable horizons, warm-started
+          QP solves (8--12~ms typical), and comprehensive constraint coverage
+          for pitch, pitch rate, and motor torques.
+    \item Regression-tested MuJoCo simulations covering perturbation recovery,
+          circular motion, and yaw-rate limitations, plus a comparative LQR
+          controller using identical plant assumptions.
+    \item A hardware integration path that reuses the simulation controller,
+          adds timing telemetry, and communicates with the Balboa microcontroller
+          through a documented serial protocol.
+\end{itemize}
+
+\section*{Paper Outline}
+The remainder of the paper proceeds as follows: Section~II details the dynamics
+model and linearization/discretization pipeline. Section~III introduces the MPC
+formulation, constraints, and warm-start strategy. Section~IV discusses design
+parameter tuning while Section~V contrasts MPC with the implemented LQR
+baseline. Section~VI presents current conclusions, Section~VII reflects on open
+issues and lessons learned, and the Appendix summarizes hardware specifications
+alongside implementation artifacts.

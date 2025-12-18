@@ -125,7 +125,7 @@ J = Σ(k=0 to N-1) [||x(k) - x_ref(k)||²_Q + ||u(k)||²_R] + ||x(N) - x_ref(N)|
   - Emergency stop if |θ| > θ_critical (e.g., 45°)
 
 **Prediction Horizon**: N = 10-30 steps  
-**Sampling Time**: T_s = 10-20 ms (50-100 Hz control loop)
+**Sampling Time**: T_s = 65 ms (≈16 Hz control loop)
 
 **Assumption**: Linearized model around vertical equilibrium (θ = 0) or successive linearization for nonlinear MPC.
 
@@ -144,7 +144,7 @@ J = Σ(k=0 to N-1) [||x(k) - x_ref(k)||²_Q + ||u(k)||²_R] + ||x(N) - x_ref(N)|
 ### 3.4 Performance Metrics
 - **Settling Time**: <2 seconds after disturbance
 - **Steady-State Error**: <2° for pitch, <5 cm for position
-- **Control Frequency**: ≥50 Hz sustained
+- **Control Frequency**: ≥16 Hz sustained
 - **Computation Time**: MPC solve time <15 ms per iteration
 
 ---
@@ -242,7 +242,7 @@ The project is considered successful if:
 1. ✓ Robot maintains balance autonomously for ≥30 seconds
 2. ✓ Recovers from moderate manual pushes (≤5 N)
 3. ✓ Tracks spline trajectory within ±10 cm
-4. ✓ MPC runs at ≥50 Hz on Raspberry Pi
+4. ✓ MPC runs at ≥16 Hz on Raspberry Pi
 5. ✓ All safety features function correctly
 6. ✓ Complete documentation and code submitted
 

@@ -52,6 +52,7 @@ class MPCSolution:
     solver_status: str
     cost: float
     solver_iterations: int = 0
+    velocity_slack: Optional[np.ndarray] = None
 
 
 class LinearMPCSolver:
@@ -86,6 +87,7 @@ class LinearMPCSolver:
         terminal_pitch_rate_limit_radps: Optional[float] = None,
         terminal_velocity_limit_mps: Optional[float] = None,
         preserve_warm_start_on_dynamics_update: bool = False,
+        velocity_limit_slack_weight: float = 0.0,
     ) -> None:
         """Initialize the MPC solver.
 
@@ -107,8 +109,17 @@ class LinearMPCSolver:
         """
         self._prediction_horizon_steps = prediction_horizon_steps
         self._state_cost = state_cost
+        self._state_cost_diag = np.diag(self._state_cost)
+        self._state_cost_base_diag = self._state_cost_diag.copy()
+        self._current_state_cost_diag = self._state_cost_diag.copy()
         self._control_cost = control_cost
+        self._control_cost_diag = np.diag(self._control_cost)
+        self._control_cost_base_diag = self._control_cost_diag.copy()
+        self._current_control_cost_diag = self._control_cost_diag.copy()
         self._terminal_cost = terminal_cost
+        self._terminal_cost_diag = np.diag(self._terminal_cost)
+        self._terminal_cost_base_diag = self._terminal_cost_diag.copy()
+        self._current_terminal_cost_diag = self._terminal_cost_diag.copy()
         self._state_constraints = state_constraints
         self._input_constraints = input_constraints
         self._solver_name = solver_name
@@ -118,6 +129,12 @@ class LinearMPCSolver:
         self._terminal_velocity_limit_mps = terminal_velocity_limit_mps
         self._preserve_warm_start_on_dynamics_update = (
             preserve_warm_start_on_dynamics_update
+        )
+        self._velocity_slack_weight = velocity_limit_slack_weight
+        self._velocity_slack_var: Optional[ca.MX] = None
+        self._use_velocity_slack = (
+            self._state_constraints.velocity_limit_mps is not None
+            and self._velocity_slack_weight > 0
         )
 
         # Store dynamics matrices (will be converted to parameters after Opti creation)
@@ -136,6 +153,22 @@ class LinearMPCSolver:
             self._control_matrix_param,
             discrete_dynamics.control_matrix_discrete
         )
+        self._opti.set_value(self._state_cost_diag_param, self._state_cost_base_diag)
+        self._opti.set_value(self._control_cost_diag_param, self._control_cost_base_diag)
+        self._opti.set_value(self._terminal_cost_diag_param, self._terminal_cost_base_diag)
+
+        self._terminal_pitch_limit_default = (
+            self._terminal_pitch_limit_rad if self._terminal_pitch_limit_rad is not None else 1e6
+        )
+        self._terminal_pitch_rate_limit_default = (
+            self._terminal_pitch_rate_limit_radps if self._terminal_pitch_rate_limit_radps is not None else 1e6
+        )
+        self._terminal_velocity_limit_default = (
+            self._terminal_velocity_limit_mps if self._terminal_velocity_limit_mps is not None else 1e6
+        )
+        self._opti.set_value(self._terminal_pitch_limit_param, self._terminal_pitch_limit_default)
+        self._opti.set_value(self._terminal_pitch_rate_limit_param, self._terminal_pitch_rate_limit_default)
+        self._opti.set_value(self._terminal_velocity_limit_param, self._terminal_velocity_limit_default)
 
         # Warm start storage
         self._previous_state_solution: Optional[np.ndarray] = None
@@ -164,6 +197,17 @@ class LinearMPCSolver:
         self._state_matrix_param = self._opti.parameter(n_states, n_states)
         self._control_matrix_param = self._opti.parameter(n_states, n_controls)
 
+        if self._use_velocity_slack:
+            self._velocity_slack_var = self._opti.variable(1, horizon + 1)
+            self._opti.subject_to(self._velocity_slack_var >= 0)
+        else:
+            self._velocity_slack_var = None
+
+        # Cost matrix parameters for runtime overrides
+        self._state_cost_diag_param = self._opti.parameter(n_states)
+        self._control_cost_diag_param = self._opti.parameter(n_controls)
+        self._terminal_cost_diag_param = self._opti.parameter(n_states)
+
         # Build cost function
         cost = 0
 
@@ -176,16 +220,24 @@ class LinearMPCSolver:
             control = self._control_variables[:, step_index]
 
             # State cost: (x - x_ref)^T Q (x - x_ref)
-            cost += ca.mtimes([state_error.T, self._state_cost, state_error])
+            q_matrix = ca.diag(self._state_cost_diag_param)
+            cost += ca.mtimes([state_error.T, q_matrix, state_error])
             # Control cost: u^T R u
-            cost += ca.mtimes([control.T, self._control_cost, control])
+            r_matrix = ca.diag(self._control_cost_diag_param)
+            cost += ca.mtimes([control.T, r_matrix, control])
+            if self._use_velocity_slack:
+                slack = self._velocity_slack_var[0, step_index]
+                cost += self._velocity_slack_weight * (slack ** 2)
 
         # Terminal cost: (x_N - x_ref_N)^T P (x_N - x_ref_N)
         terminal_error = (
             self._state_variables[:, horizon]
             - self._reference_trajectory_param[:, horizon]
         )
-        cost += ca.mtimes([terminal_error.T, self._terminal_cost, terminal_error])
+        terminal_diag = ca.diag(self._terminal_cost_diag_param)
+        cost += ca.mtimes([terminal_error.T, terminal_diag, terminal_error])
+        if self._use_velocity_slack:
+            cost += self._velocity_slack_weight * (self._velocity_slack_var[0, horizon] ** 2)
 
         self._opti.minimize(cost)
 
@@ -205,10 +257,30 @@ class LinearMPCSolver:
             self._state_variables[:, 0] == self._initial_state_param
         )
 
-        # State constraints (box constraints)
+        # State constraints (box constraints with optional slack on velocity)
         state_lower, state_upper = self._state_constraints.get_bounds()
+        skip_velocity_at_initial = (
+            self._state_constraints.velocity_limit_mps is not None
+            and not self._use_velocity_slack
+        )
+
         for step_index in range(horizon + 1):
+            if self._use_velocity_slack:
+                slack = self._velocity_slack_var[0, step_index]
+                limit = self._state_constraints.velocity_limit_mps or 0.0
+                self._opti.subject_to(
+                    self._state_variables[VELOCITY_INDEX, step_index]
+                    >= -limit - slack
+                )
+                self._opti.subject_to(
+                    self._state_variables[VELOCITY_INDEX, step_index]
+                    <= limit + slack
+                )
             for state_index in range(n_states):
+                if self._use_velocity_slack and state_index == VELOCITY_INDEX:
+                    continue
+                if skip_velocity_at_initial and state_index == VELOCITY_INDEX and step_index == 0:
+                    continue
                 if np.isfinite(state_lower[state_index]):
                     self._opti.subject_to(
                         self._state_variables[state_index, step_index]
@@ -221,43 +293,34 @@ class LinearMPCSolver:
                     )
 
         # ADDITIONAL terminal constraints at step N (applied on top of state constraints)
-        if (self._terminal_pitch_limit_rad is not None or
-            self._terminal_pitch_rate_limit_radps is not None or
-            self._terminal_velocity_limit_mps is not None):
+        self._terminal_pitch_limit_param = self._opti.parameter()
+        self._terminal_pitch_rate_limit_param = self._opti.parameter()
+        self._terminal_velocity_limit_param = self._opti.parameter()
 
-            # Additional constraint: pitch at terminal must satisfy tighter bounds
-            # This is IN ADDITION to the regular state constraint already applied above
-            if self._terminal_pitch_limit_rad is not None:
-                self._opti.subject_to(
-                    self._state_variables[PITCH_INDEX, horizon]
-                    >= -self._terminal_pitch_limit_rad
-                )
-                self._opti.subject_to(
-                    self._state_variables[PITCH_INDEX, horizon]
-                    <= self._terminal_pitch_limit_rad
-                )
-
-            # Additional constraint: pitch rate at terminal must satisfy tighter bounds
-            if self._terminal_pitch_rate_limit_radps is not None:
-                self._opti.subject_to(
-                    self._state_variables[PITCH_RATE_INDEX, horizon]
-                    >= -self._terminal_pitch_rate_limit_radps
-                )
-                self._opti.subject_to(
-                    self._state_variables[PITCH_RATE_INDEX, horizon]
-                    <= self._terminal_pitch_rate_limit_radps
-                )
-
-            # Additional constraint: velocity at terminal must satisfy tighter bounds
-            if self._terminal_velocity_limit_mps is not None:
-                self._opti.subject_to(
-                    self._state_variables[VELOCITY_INDEX, horizon]
-                    >= -self._terminal_velocity_limit_mps
-                )
-                self._opti.subject_to(
-                    self._state_variables[VELOCITY_INDEX, horizon]
-                    <= self._terminal_velocity_limit_mps
-                )
+        self._opti.subject_to(
+            self._state_variables[PITCH_INDEX, horizon]
+            >= -self._terminal_pitch_limit_param
+        )
+        self._opti.subject_to(
+            self._state_variables[PITCH_INDEX, horizon]
+            <= self._terminal_pitch_limit_param
+        )
+        self._opti.subject_to(
+            self._state_variables[PITCH_RATE_INDEX, horizon]
+            >= -self._terminal_pitch_rate_limit_param
+        )
+        self._opti.subject_to(
+            self._state_variables[PITCH_RATE_INDEX, horizon]
+            <= self._terminal_pitch_rate_limit_param
+        )
+        self._opti.subject_to(
+            self._state_variables[VELOCITY_INDEX, horizon]
+            >= -self._terminal_velocity_limit_param
+        )
+        self._opti.subject_to(
+            self._state_variables[VELOCITY_INDEX, horizon]
+            <= self._terminal_velocity_limit_param
+        )
 
         # Control constraints (box constraints)
         control_lower, control_upper = self._input_constraints.get_bounds()
@@ -296,6 +359,12 @@ class LinearMPCSolver:
         self,
         current_state: np.ndarray,
         reference_trajectory: np.ndarray,
+        state_cost_override: Optional[np.ndarray] = None,
+        control_cost_override: Optional[np.ndarray] = None,
+        terminal_cost_override: Optional[np.ndarray] = None,
+        terminal_pitch_limit_override: Optional[float] = None,
+        terminal_pitch_rate_limit_override: Optional[float] = None,
+        terminal_velocity_limit_override: Optional[float] = None,
     ) -> MPCSolution:
         """Solve the MPC problem.
 
@@ -337,6 +406,59 @@ class LinearMPCSolver:
                 f"({horizon + 1}, {STATE_DIMENSION}), got {reference_trajectory.shape}"
             )
 
+        # Set state cost override if provided
+        if state_cost_override is not None:
+            override_diag = np.diag(state_cost_override).astype(float)
+            self._opti.set_value(self._state_cost_diag_param, override_diag)
+            self._current_state_cost_diag = override_diag.copy()
+        else:
+            self._opti.set_value(self._state_cost_diag_param, self._state_cost_base_diag)
+            self._current_state_cost_diag = self._state_cost_base_diag.copy()
+
+        # Set control cost override if provided
+        if control_cost_override is not None:
+            control_override_diag = np.diag(control_cost_override).astype(float)
+            self._opti.set_value(self._control_cost_diag_param, control_override_diag)
+            self._current_control_cost_diag = control_override_diag.copy()
+        else:
+            self._opti.set_value(
+                self._control_cost_diag_param,
+                self._control_cost_base_diag
+            )
+            self._current_control_cost_diag = self._control_cost_base_diag.copy()
+
+        # Terminal cost override if provided
+        if terminal_cost_override is not None:
+            terminal_override_diag = np.diag(terminal_cost_override).astype(float)
+            self._opti.set_value(self._terminal_cost_diag_param, terminal_override_diag)
+            self._current_terminal_cost_diag = terminal_override_diag.copy()
+        else:
+            self._opti.set_value(
+                self._terminal_cost_diag_param,
+                self._terminal_cost_base_diag
+            )
+            self._current_terminal_cost_diag = self._terminal_cost_base_diag.copy()
+
+        # Terminal constraint overrides
+        pitch_limit = (
+            float(terminal_pitch_limit_override)
+            if terminal_pitch_limit_override is not None
+            else self._terminal_pitch_limit_default
+        )
+        pitch_rate_limit = (
+            float(terminal_pitch_rate_limit_override)
+            if terminal_pitch_rate_limit_override is not None
+            else self._terminal_pitch_rate_limit_default
+        )
+        velocity_limit = (
+            float(terminal_velocity_limit_override)
+            if terminal_velocity_limit_override is not None
+            else self._terminal_velocity_limit_default
+        )
+        self._opti.set_value(self._terminal_pitch_limit_param, pitch_limit)
+        self._opti.set_value(self._terminal_pitch_rate_limit_param, pitch_rate_limit)
+        self._opti.set_value(self._terminal_velocity_limit_param, velocity_limit)
+
         # Set parameters
         self._opti.set_value(self._initial_state_param, current_state)
         self._opti.set_value(self._reference_trajectory_param, reference_trajectory)
@@ -348,6 +470,7 @@ class LinearMPCSolver:
         # Solve
         start_time = time.perf_counter()
         iter_count = 0
+        velocity_slack = None
         try:
             solution = self._opti.solve()
             solve_time_s = time.perf_counter() - start_time
@@ -359,6 +482,8 @@ class LinearMPCSolver:
             state_trajectory = solution.value(self._state_variables).T
             control_sequence = solution.value(self._control_variables).T
             cost = solution.value(self._opti.f)
+            if self._velocity_slack_var is not None:
+                velocity_slack = solution.value(self._velocity_slack_var).T
 
             # Store for warm start
             if self._warm_start_enabled:
@@ -383,6 +508,7 @@ class LinearMPCSolver:
             solver_status=solver_status,
             cost=cost,
             solver_iterations=iter_count,
+            velocity_slack=velocity_slack,
         )
 
     def _apply_warm_start(self) -> None:
@@ -433,6 +559,8 @@ class LinearMPCSolver:
             self._control_matrix_param,
             discrete_dynamics.control_matrix_discrete
         )
+        self._opti.set_value(self._state_cost_diag_param, self._state_cost_base_diag)
+        self._opti.set_value(self._control_cost_diag_param, self._control_cost_base_diag)
 
         # Update numpy copies for reference
         self._state_matrix = discrete_dynamics.state_matrix_discrete
@@ -450,3 +578,52 @@ class LinearMPCSolver:
     def prediction_horizon_steps(self) -> int:
         """Number of prediction steps N."""
         return self._prediction_horizon_steps
+
+    @property
+    def state_matrix(self) -> np.ndarray:
+        """Current discrete-time state transition matrix."""
+        return self._state_matrix.copy()
+
+    @property
+    def control_matrix(self) -> np.ndarray:
+        """Current discrete-time control matrix."""
+        return self._control_matrix.copy()
+
+    @property
+    def warm_start_enabled(self) -> bool:
+        return self._warm_start_enabled
+
+    @property
+    def state_cost(self) -> np.ndarray:
+        """Current stage cost matrix."""
+        return np.diag(self._current_state_cost_diag)
+
+    @property
+    def base_state_cost(self) -> np.ndarray:
+        """Default stage cost matrix from configuration."""
+        return np.diag(self._state_cost_base_diag)
+
+    @property
+    def control_cost(self) -> np.ndarray:
+        """Current control cost matrix."""
+        return np.diag(self._current_control_cost_diag)
+
+    @property
+    def base_control_cost(self) -> np.ndarray:
+        """Default control cost matrix from configuration."""
+        return np.diag(self._control_cost_base_diag)
+
+    @property
+    def control_limit_nm(self) -> float:
+        """Torque limit enforced by input constraints."""
+        return self._input_constraints.control_limit_nm
+
+    @property
+    def terminal_cost(self) -> np.ndarray:
+        """Current terminal cost matrix."""
+        return np.diag(self._current_terminal_cost_diag)
+
+    @property
+    def base_terminal_cost(self) -> np.ndarray:
+        """Default terminal cost matrix from configuration."""
+        return np.diag(self._terminal_cost_base_diag)

@@ -67,9 +67,9 @@ def test_geometry_consistency(params, mujoco_model):
     Verifies wheel radius, track width, and COM distance.
     """
     # These values are known from the mujoco_sim/robot_model.xml
-    mujoco_wheel_radius = 0.05  # m
-    mujoco_track_width = 0.30  # m
-    mujoco_com_height = 0.20  # m
+    mujoco_wheel_radius = 0.04  # m
+    mujoco_track_width = 0.10  # m
+    mujoco_com_height = 0.0275  # m
 
     # Check wheel radius (within 1mm)
     assert abs(params.wheel_radius_m - mujoco_wheel_radius) < 0.001, \
@@ -118,8 +118,8 @@ def test_parameter_reasonableness(params):
 
     # Dimensions should be reasonable (1cm to 1m)
     assert 0.01 < params.wheel_radius_m < 0.5, f"Wheel radius seems wrong: {params.wheel_radius_m}m"
-    assert 0.05 < params.com_distance_m < 1.0, f"COM distance seems wrong: {params.com_distance_m}m"
-    assert 0.1 < params.track_width_m < 1.0, f"Track width seems wrong: {params.track_width_m}m"
+    assert 0.02 < params.com_distance_m < 0.1, f"COM distance seems wrong: {params.com_distance_m}m"
+    assert 0.05 < params.track_width_m < 0.5, f"Track width seems wrong: {params.track_width_m}m"
 
     # Inertias should be positive and reasonable
     assert params.body_pitch_inertia_kg_m2 > 0, "Body pitch inertia must be positive"

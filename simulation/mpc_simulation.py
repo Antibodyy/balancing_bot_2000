@@ -12,13 +12,14 @@ can still be imported but simulation methods will raise ImportError.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, List, Callable, Any, Tuple
 import time
 
 import numpy as np
 from scipy.optimize import least_squares, brentq
+import yaml
 
 # MuJoCo is optional - only required for actual simulation
 try:
@@ -133,8 +134,15 @@ class SimulationResult:
     sample_time_s: float = 0.0
     pitch_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
     velocity_error_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    desired_pitch_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    desired_velocity_history: np.ndarray = field(default_factory=lambda: np.array([]))
     torque_saturation_history: np.ndarray = field(default_factory=lambda: np.array([]))
     infeasible_history: np.ndarray = field(default_factory=lambda: np.array([]))
+    velocity_slack_history: np.ndarray = field(default_factory=lambda: np.zeros((0,)))
+    ground_slope_rad: float = 0.0
+    equilibrium_state: np.ndarray = field(default_factory=lambda: np.zeros(STATE_DIMENSION))
+    equilibrium_control: np.ndarray = field(default_factory=lambda: np.zeros(CONTROL_DIMENSION))
+    mpc_config_yaml: str = ""
     success: bool = True
     total_duration_s: float = 0.0
     mean_qp_solve_time_ms: float = 0.0
@@ -306,6 +314,7 @@ class MPCSimulation:
             self._mpc_config.pitch_limit_rad,
             self._mpc_config.pitch_rate_limit_radps,
             self._mpc_config.control_limit_nm,
+            velocity_limit_mps=self._mpc_config.velocity_limit_mps,
         )
 
         # Create MPC solver
@@ -321,6 +330,7 @@ class MPCSimulation:
             terminal_pitch_rate_limit_radps=self._mpc_config.terminal_pitch_rate_limit_radps,
             terminal_velocity_limit_mps=self._mpc_config.terminal_velocity_limit_mps,
             preserve_warm_start_on_dynamics_update=self._mpc_config.preserve_warm_start_on_linearization,
+            velocity_limit_slack_weight=self._mpc_config.velocity_limit_slack_weight,
         )
 
         # Create state estimator
@@ -343,10 +353,12 @@ class MPCSimulation:
             wheel_radius_m=self._robot_params.wheel_radius_m,
             track_width_m=self._robot_params.track_width_m,
             robot_params=self._robot_params,
-             equilibrium_state=eq_state,
-             equilibrium_control=eq_control,
+            equilibrium_state=eq_state,
+            equilibrium_control=eq_control,
             online_linearization_enabled=self._mpc_config.online_linearization_enabled,
-            use_simulation_velocity=True,  # FIX: Enable corrected velocity in simulation
+            use_simulation_velocity=True,
+            use_simulation_heading=True,
+            use_simulation_state_estimate=True,
         )
 
     def _resolve_model_path(self) -> Path:
@@ -655,7 +667,13 @@ class MPCSimulation:
                 )
             static_command = None
         else:
-            static_command = reference_command or ReferenceCommand(mode=ReferenceMode.BALANCE)
+            if reference_command is None:
+                static_command = ReferenceCommand(
+                    mode=ReferenceMode.BALANCE,
+                    desired_pitch_rad=-self._ground_slope_rad,
+                )
+            else:
+                static_command = reference_command
 
         if self._use_virtual_physics:
             # Start virtual plant at equilibrium and apply the requested perturbation.
@@ -703,6 +721,8 @@ class MPCSimulation:
         iteration_history: List[float] = []
         pitch_error_history: List[float] = []
         velocity_error_history: List[float] = []
+        desired_pitch_history: List[float] = []
+        desired_velocity_history: List[float] = []
         torque_saturation_history: List[bool] = []
         infeasible_history: List[bool] = []
         reference_history: List[np.ndarray] = []
@@ -710,12 +730,15 @@ class MPCSimulation:
         u_applied_history: List[np.ndarray] = []
         x_lin_history: List[np.ndarray] = []
         e1_history: List[np.ndarray] = []
+        velocity_slack_history: List[np.ndarray] = []
         prev_pred: Optional[np.ndarray] = None
+        pred_alignment_logged = False
+        solver_failure_logged = False
+        pred_alignment_logged = False
 
         # Tracking
         deadline_violations = 0
         success = True
-        theta_ref = -self._ground_slope_rad
         control_limit = self._mpc_config.control_limit_nm
 
         # Run simulation
@@ -738,7 +761,7 @@ class MPCSimulation:
             sensor_data = self._build_sensor_data(sim_time)
 
             state_now = self._extract_state()
-            true_state_history.append(state_now.copy())
+            self._controller.update_simulation_state(state_now)
             if self._use_virtual_physics:
                 self._controller._true_ground_velocity = state_now[VELOCITY_INDEX]
                 self._controller._true_heading = state_now[YAW_INDEX]
@@ -770,6 +793,58 @@ class MPCSimulation:
                 print("||diff|| =", float(np.linalg.norm(original_first - x_est)))
                 print("x_est      =", x_est)
                 print("x_pred[0]  =", original_first)
+                if not pred_alignment_logged:
+                    solver_status = output.mpc_solution.solver_status or ""
+                    fallback_used = solver_status.lower() != "optimal"
+                    x0_absolute = output.state_deviation + self._equilibrium_state
+                    print(
+                        f"[DIAG] Prediction mismatch first seen at step {step_idx}, "
+                        f"t={sim_time:.3f}s"
+                    )
+                    print("x0 (absolute) =", x0_absolute)
+                    print("x0 (deviation) =", output.state_deviation)
+                    print("pred_state_history[k,0,:] prior to overwrite =", original_first)
+                    print(
+                        f"solver_status='{solver_status}', iterations={output.mpc_solution.solver_iterations}, "
+                        f"solve_time_ms={output.timing.solve_time_s * 1000:.2f}"
+                    )
+                    print("fallback_trajectory_applied =", fallback_used)
+                    if fallback_used:
+                        print(
+                            "Note: linear_mpc_solver.py RuntimeError path zeroes predicted_trajectory "
+                            "before BalanceController overwrites entry 0."
+                        )
+                    pred_alignment_logged = True
+
+            if not solver_failure_logged and (output.mpc_solution.solver_status or "").lower() != "optimal":
+                ref_dev = self._controller._reference_generator.generate(command, x_est)
+                solver = self._controller._mpc_solver
+                print(
+                    f"[DIAG] Solver failure snapshot at step {step_idx}, "
+                    f"t={sim_time:.3f}s"
+                )
+                print("x_est =", x_est)
+                print("state_deviation =", output.state_deviation)
+                print("last_control =", getattr(self._controller, '_last_control', None))
+                print("reference (balance) sample =", ref_dev[0])
+                print("ground_slope_rad =", self._ground_slope_rad)
+                print("pitch_limit_rad =", self._mpc_config.pitch_limit_rad)
+                print("pitch_rate_limit_radps =", self._mpc_config.pitch_rate_limit_radps)
+                print("control_limit_nm =", self._mpc_config.control_limit_nm)
+                print("solver_status =", output.mpc_solution.solver_status)
+                print("solver_iterations =", output.mpc_solution.solver_iterations)
+                print("solve_time_ms =", output.timing.solve_time_s * 1000)
+                print("warm_start_enabled =", solver.warm_start_enabled)
+                print(
+                    "previous_state_solution_available =",
+                    solver._previous_state_solution is not None
+                )
+                A = solver.state_matrix
+                B = solver.control_matrix
+                print("||A_d|| =", float(np.linalg.norm(A)))
+                print("cond(A_d) =", float(np.linalg.cond(A)))
+                print("||B_d|| =", float(np.linalg.norm(B)))
+                solver_failure_logged = True
 
             if prev_pred is not None and prev_pred.shape[0] > 1:
                 e1 = prev_pred[1, :] - x_est
@@ -785,12 +860,21 @@ class MPCSimulation:
             reference_history.append(output.mpc_solution.predicted_trajectory.copy())
             pred_state_history.append(x_pred)
             x_lin_history.append(x_lin)
+            slack = output.mpc_solution.velocity_slack
+            if slack is None or slack.size == 0:
+                solver_horizon = self._controller._mpc_solver.prediction_horizon_steps
+                slack = np.zeros(solver_horizon + 1)
+            else:
+                slack = np.asarray(slack).reshape(-1)
+            velocity_slack_history.append(slack.copy())
 
+            desired_pitch = -self._ground_slope_rad
             desired_velocity = 0.0
+            if command.mode == ReferenceMode.BALANCE:
+                desired_pitch = command.desired_pitch_rad
             if command.mode == ReferenceMode.VELOCITY:
                 desired_velocity = command.velocity_mps
-            pitch_error_history.append(state_now[PITCH_INDEX] - theta_ref)
-            velocity_error_history.append(state_now[VELOCITY_INDEX] - desired_velocity)
+            # Dynamics integration has not yet occurred. Defer error logging until after the step.
 
             u_plan = np.array([output.torque_left_nm, output.torque_right_nm])
             u_applied = np.clip(u_plan, -control_limit, control_limit)
@@ -817,7 +901,15 @@ class MPCSimulation:
                 for _ in range(mujoco_steps_per_mpc):
                     mujoco.mj_step(self._model, self._data)
 
-            if self._check_fallen(state_now):
+            state_post = self._extract_state()
+            true_state_history.append(state_post.copy())
+
+            pitch_error_history.append(state_post[PITCH_INDEX] - desired_pitch)
+            velocity_error_history.append(state_post[VELOCITY_INDEX] - desired_velocity)
+            desired_pitch_history.append(desired_pitch)
+            desired_velocity_history.append(desired_velocity)
+
+            if self._check_fallen(state_post):
                 success = False
                 break
 
@@ -838,12 +930,20 @@ class MPCSimulation:
         iteration_arr = _to_array(iteration_history, (0,))
         pitch_error_arr = _to_array(pitch_error_history, (0,))
         velocity_error_arr = _to_array(velocity_error_history, (0,))
+        desired_pitch_arr = _to_array(desired_pitch_history, (0,))
+        desired_velocity_arr = _to_array(desired_velocity_history, (0,))
         torque_saturation_arr = np.asarray(torque_saturation_history, dtype=bool)
         infeasible_arr = np.asarray(infeasible_history, dtype=bool)
         pred_state_arr = _to_array(pred_state_history, (0, self._mpc_config.prediction_horizon_steps + 1, STATE_DIMENSION))
         u_applied_arr = _to_array(u_applied_history, (0, CONTROL_DIMENSION))
         x_lin_arr = _to_array(x_lin_history, (0, STATE_DIMENSION))
         e1_arr = _to_array(e1_history, (0, STATE_DIMENSION))
+        velocity_slack_arr = _to_array(
+            velocity_slack_history,
+            (0, self._mpc_config.prediction_horizon_steps + 1),
+        )
+
+        mpc_config_yaml = yaml.safe_dump(asdict(self._mpc_config), sort_keys=True)
 
         mean_qp = float(np.mean(qp_solve_arr) * 1000) if qp_solve_arr.size else 0.0
         max_qp = float(np.max(qp_solve_arr) * 1000) if qp_solve_arr.size else 0.0
@@ -865,8 +965,15 @@ class MPCSimulation:
             sample_time_s=mpc_period,
             pitch_error_history=pitch_error_arr,
             velocity_error_history=velocity_error_arr,
+            desired_pitch_history=desired_pitch_arr,
+            desired_velocity_history=desired_velocity_arr,
             torque_saturation_history=torque_saturation_arr,
             infeasible_history=infeasible_arr,
+            velocity_slack_history=velocity_slack_arr,
+            ground_slope_rad=self._ground_slope_rad,
+            equilibrium_state=self._equilibrium_state.copy(),
+            equilibrium_control=self._equilibrium_control.copy(),
+            mpc_config_yaml=mpc_config_yaml,
             success=success,
             total_duration_s=wall_duration,
             mean_qp_solve_time_ms=mean_qp,
@@ -985,7 +1092,6 @@ class MPCSimulation:
         velocity_error_list = []
         torque_saturation_list = []
         infeasible_list = []
-        theta_ref = -self._ground_slope_rad
         control_limit = self._mpc_config.control_limit_nm
 
         mpc_period = self._mpc_config.sampling_period_s
@@ -1038,7 +1144,10 @@ class MPCSimulation:
                         model_update_time_list.append(output.timing.model_update_time_s)
                         reference_list.append(output.mpc_solution.predicted_trajectory.copy())
                         iteration_list.append(output.mpc_solution.solver_iterations)
-                        pitch_error_list.append(state_list[-1][PITCH_INDEX] - theta_ref)
+                        desired_pitch = -self._ground_slope_rad
+                        if command.mode == ReferenceMode.BALANCE:
+                            desired_pitch = command.desired_pitch_rad
+                        pitch_error_list.append(state_list[-1][PITCH_INDEX] - desired_pitch)
                         desired_velocity = 0.0
                         if command.mode == ReferenceMode.VELOCITY:
                             desired_velocity = command.velocity_mps
@@ -1123,3 +1232,13 @@ class MPCSimulation:
     def equilibrium_control(self) -> np.ndarray:
         """Copy of the cached equilibrium control."""
         return self._equilibrium_control.copy()
+        print(
+            "[INFO] Balance equilibrium: slope={:.4f} rad, pitch={:.4f} rad, "
+            "control=({}, {}), mean_torque={:.4f} Nm".format(
+                self._ground_slope_rad,
+                self._equilibrium_state[PITCH_INDEX],
+                self._equilibrium_control[0],
+                self._equilibrium_control[1],
+                float(np.mean(self._equilibrium_control)),
+            )
+        )

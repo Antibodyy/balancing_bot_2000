@@ -1,0 +1,137 @@
+\hl{if time add physical tests as well}
+% (how much x traveled before stabilizes, max theta before stabilizing, stabilization time from different initial states, ...)
+
+\subsection*{Objectives and performance metrics}
+
+\textbf{Primary Objectives:}
+\begin{enumerate}
+    \item Balance Stabilization: Maintain $|\theta| < 5^\circ$ during operation
+    \item Position Tracking: Follow desired $(x, y)$ trajectory with error $< 10$ cm
+    \item Heading Control: Track desired heading $\psi$ with error $< 5^\circ$
+\end{enumerate}
+
+\textbf{Secondary Objectives:}
+\begin{enumerate}
+    \setcounter{enumi}{3}
+    \item Smooth control inputs (minimize $\Delta u$)
+    \item Energy efficiency
+    \item Disturbance rejection (pushes, ground irregularities)
+\end{enumerate}
+%all of the following things are super easily tweakable in the $\texttt{mpc_parameters.yaml}$ file in config of the git repo
+
+\subsection*{Sampling period and prediction horizon size}
+A smaller sampling period $T_s$ will enhance accuracy and ensure disturbances are handled fast enough, but will require more compute. An open loop test was designed to define the 10\% to 90\% rise time to reach the final steady-state value ($~1.3s$). This helped identify an appropriate sampling time, as literature recommends placing 20 samples within this rise time. This analysis yields a sampling time of 0.065s, which translates to a control frequency of around 15Hz. We realize this may be on the slow side for actual implementation, but simulations show promising results. \cite{mathworks_mpc_video}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{img/prediction_horizon_trajecftories.png}
+    \caption{Pitch horizon trajectories}
+    \label{fig:pitch horizon trajectories}
+\end{figure}
+
+The prediction horizon N defines how far into the future our controller solves the optimal control problem at each iteration. An insufficient horizon length leads to a short-sighted controller that fails to anticipate future state trajectories, thus resulting in infeasibility. A longer horizon enables more anticipatory behavior and smoother trajectories, but increases computational cost since only the first control input is implemented at each iteration. From a stability perspective, the horizon must be long enough to capture the dominant system dynamics and ensure feasibility of terminal constraints; insufficient horizon length can compromise closed-loop stability. A prediction horizon of N = 30 samples was selected to maintain real-time feasibility while maximizing control performance with favorable computational trade-offs. \cite{mathworks_mpc_doc}
+
+\subsection*{Cost function matrices and MPC performance}
+To investigate the influence of cost function weighting, multiple test scenarios were conducted with varying Q and R matrix tunings to assess controller performance.
+\\
+\begin{figure}[H]
+\centering
+\begin{subfigure}[H]{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{img/balancing mpc.png}
+\caption{MPC prediction accuracy}
+\end{subfigure}
+\hfill
+\begin{subfigure}[H]{0.49\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/perturbation recovery.png}
+\caption{perturbation recovery}
+\end{subfigure}
+\caption{Balancing test}
+\label{fig: balancing test}
+\end{figure}
+
+Simple balancing tests as well as perturbation recovery tests were successful, with the robot reaching acceptable maximum angle deviations (drift) as seen in Figure \ref{fig: balancing test}. Pitch and pitch rate dominate matrix weights in the best performing tests, prioritizing upright stabilization against disturbances over other states. Position, velocity, and yaw terms receive minimal emphasis since stationary equilibrium decouples lateral and translational dynamics. Where the pitch angle changes gradually and remains relatively flat, the MPC predictions closely follow the actual trajectory, indicating accurate model representation. However, the controller struggles with rapid transients. This discrepancy suggests that improving the linearization of the system dynamics, particularly around larger deviations from equilibrium, would enhance prediction accuracy during aggressive maneuvers. This is further analyzed in subsection "Different linearization methods". \\
+
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[H]{0.4\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/drive stop balance.png}
+\caption{Pitch correction}
+\end{subfigure}
+\hfill
+\begin{subfigure}[H]{0.45\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/drive stop mpc.png}
+\caption{MPC predication accuracy}
+\end{subfigure}
+\caption{Drive-stop test}
+\label{fig:combined}
+\end{figure}
+
+In the drive-stop the controller shows strong steady-state tracking with clear opportunities for improvement during transient events.This is consistent with the results from the balancing and disturbance testing. It has to be noted the initial divergence at the state transition from driving to balancing mode (around 4-5 seconds) is expected behavior, as the MPC cannot anticipate this discrete state change and must reactively adjust its internal model. 
+\\
+In the drive-stop tests position and velocity receive the heaviest weights to enable precise forward tracking and smooth deceleration. Pitch and pitch rate get moderate emphasis for lean compensation during acceleration, while yaw stays lightly weighted as there is no turning or steering involved. \\
+\hl{include picture, either of the failing circle or of the weird yaw plots}
+For circle driving tests, yaw and yaw rate dominate the weights to maintain consistent turning radius against centrifugal instabilities. Position/velocity balance path adherence with moderate priority, while pitch terms stay secondary as steady circular motion minimizes sagittal perturbations. Heavy prioritization (up to 500\%) was but steady yaw could was not achieved, which is portrayed in figure \hl{x}. However, open-loop yaw test were successful, ruling out fundamental issues with simulation physics, actuator models, or basic differential drive kinematics. The MPC failing to drive in circles despite valid yaw torque commands highly likely stems from model-simulation mismatches in the linearized state-space dynamics such as unmodeled wheel slip angles, ground friction coupling or neglected pitch-yaw cross terms. These issues remain unresolved. \\
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[H]{0.4\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/slope pitch.png}
+\label{fig:sub1}
+\end{subfigure}
+\hfill
+\begin{subfigure}[H]{0.4\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/velocity slope.png}
+\end{subfigure}
+\caption{Stabilization on different slopes}
+\label{fig:combined}
+\end{figure}
+
+Slope stabilization tests were successful and the results match our expectations. For slope stabilization pitch and pitch rate dominate matrix weights, prioritizing precise angle stabilization against gravity-induced torques over other states. Position and velocity receive moderate emphasis to enable controlled uphill lean without drift, while yaw terms stay lightly weighted due to minimal cross-slope coupling. Figure \ref{fig:combined} shows that the robot settles at a pitch that is more negative than the slope angle, while the velocity converges to zero. This behavior is expected: to hold position on an incline, the wheels must generate an uphill torque that balances the downhill component of gravity, which requires the body to lean slightly further uphill than the slope itself, leading to a steady‑state angle offset as seen in the plots.
+
+\subsection*{Effectiveness of warm start}
+Warm starting is an optimization technique that accelerates solver convergence by initializing each MPC iteration with information from the previous solution rather than starting from scratch. When enabled, our solver uses the shifted optimal control sequence from the previous time step as an initial guess. This allows for a faster solve time, improving the real-time compatibility of the controller. Figure \ref{fig:coldWarmStart} compares the solve times of cold vs warm starting.\\\\
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{img/solve_time_histogram.png}
+    \caption{Solve time histogram: cold vs warm start}
+    \label{fig:coldWarmStart}
+\end{figure}
+
+Since this controller will be applied to a physical, real-time system, not just the average solving time is important but the worst case also is of concern. Our worst-case solve time improved by 63.8\% by utilizing a warm start approach, the 99th percentile solve time improved by 20.5\%.
+
+\subsection*{Different linearization methods}
+Because the controller operates in delta coordinates around an equilibrium, the choice of linearization mode has a direct impact on prediction fidelity. We evaluated two configurations using \texttt{tests/controller\_behaviour/mpc/test\_linearization\_modes.py}: \emph{objective} linearization, which keeps $(A,B)$ fixed at the upright operating point, and \emph{relative} linearization, which recomputes the Jacobians online at each state estimate. Both variants share the same solver settings, terminal constraints, and warm-start strategy; only the linearization mode changes between runs.
+
+Figure~\ref{fig:linearization-metrics} summarizes the aggregate metrics across $0^\circ$ to $15.4^\circ$ slopes. The objective mode maintains low computational cost but exhibits growing pitch RMS error and higher torque saturation rates as the lean angle departs from zero. Relative linearization incurs slightly longer solve times yet halves the pitch error on steep slopes and keeps torque usage closer to the admissible range. This aligns with intuition: propagating the tangent model at the current pitch reduces the mismatch between predicted and actual gravity torques, which in turn yields more accurate control actions.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{img/linearization_metrics.png}
+    \caption{Objective vs.\ relative linearization metrics across slopes. Relative updates reduce pitch error and torque saturation at the cost of marginally higher solve time.}
+    \label{fig:linearization-metrics}
+\end{figure}
+
+Time-series data reinforce this conclusion. Figure~\ref{fig:linearization-pitch} plots the pitch trajectories and velocity tracking for the $15^\circ$ slope case: the objective model underestimates the equilibrium lean and slowly drifts downhill, while the relative mode quickly converges to the correct steady-state angle and maintains zero velocity. Similar behavior was observed at intermediate slopes (5--10$^\circ$) as documented in the test artifact directory.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.9\linewidth]{img/linearization_pitch.png}
+    \caption{Pitch trajectories for objective vs.\ relative linearization on a $15^\circ$ slope. Online Jacobian updates match the true lean angle and prevent the downhill drift seen in the fixed model.}
+    \label{fig:linearization-pitch}
+\end{figure}
+
+Based on these results the relative mode is preferred for experiments because it better captures the slope-dependent lean angle while keeping solve times within the 65~ms budget. The objective (fixed) mode remains useful when computational headroom is tight, but it demands conservative operating envelopes to avoid the drift illustrated above.
+
+\subsection*{Control invariant set to ensure feasibility}
+
+\hl{add test result to show high speeds was weird or delete this subsection}
+
+The terminal constraints could not be designed without destabilizing our system, which meant the robot would not stabilize after high speed operation. To ensure feasibility at all times while keeping the maximal operating region control invariant sets (CIS) were looked into. It appears this method was unsuccessful, as the results didn't improve using this CIS. \hl{add test result to show this, maybe check terminal constraints toggled on or off}
+Other methods could be looked into as well to yield better results. Implementing maximal invariant sets, adaptive sets, or combining the MPC with other methods like Sliding-Mode control (SMC) could allow for a greater operating region to be preserved while ensuring feasibility.

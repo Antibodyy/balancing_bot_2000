@@ -1,0 +1,36 @@
+\begin{table}[H]
+    \centering
+    \caption{Circular motion tracking (scripts/debug/debug\_velocity\_circle.py, see docs/CIRCULAR\_MOTION\_ANALYSIS.md).}
+    \begin{tabular}{lccc}
+        \hline
+        Metric & Target & Measured & Error \\
+        \hline
+        Forward velocity [m/s] & 0.200 & 0.201 & 0.4\% \\
+        Yaw rate [rad/s] & 0.400 & 0.057 & 86\% \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Open-loop differential torque test (scripts/debug/test\_open\_loop\_yaw.py).}
+    \begin{tabular}{lccc}
+        \hline
+        Quantity & Model Prediction & MuJoCo Measurement & Ratio \\
+        \hline
+        Rotation from $\Delta \tau = 0.10$~N$\cdot$m & $3437.7^\circ$ & $21.3^\circ$ & $161 \times$ slower \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Yaw acceleration measurement (scripts/debug/diagnose\_yaw\_coupling.py).}
+    \begin{tabular}{lccc}
+        \hline
+        Quantity & Model Prediction & MuJoCo Measurement & Ratio \\
+        \hline
+        $\ddot{\psi}$ for $\Delta \tau = 0.05$~N$\cdot$m & 60.0~rad/s$^2$ & 1.0~rad/s$^2$ & $61 \times$ slower \\
+        \hline
+    \end{tabular}
+\end{table}

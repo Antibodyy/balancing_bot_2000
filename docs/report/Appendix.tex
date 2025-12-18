@@ -1,0 +1,85 @@
+\subsection*{Appendix A: Hardware specifications}
+\label{Appendix A}
+
+\subsubsection*{Primary Hardware}
+
+\textbf{Robot Platform:} Pololu Balboa 32U4 Balancing Robot Kit (Product \#3575)
+\begin{itemize}
+    \item Onboard ATmega32U4 microcontroller
+    \item Two 50:1 HP micro metal gearmotors with encoders
+    \item LSM6DS33 6-axis IMU (accelerometer + gyroscope)
+    \item 80$\times$10 mm wheels
+    \item TB6612FNG dual motor driver
+\end{itemize}
+
+\textbf{Computation Unit:} Raspberry Pi 4 Model B (4GB RAM)
+\begin{itemize}
+    \item Quad-core ARM Cortex-A72 @ 1.5 GHz
+    \item Communication via USB or UART with Balboa 32U4
+\end{itemize}
+
+\subsubsection*{Sensor Suite}
+
+\textbf{Inertial Measurement:} LSM6DS33 IMU
+\begin{itemize}
+    \item 3-axis accelerometer ($\pm$2g, $\pm$4g, $\pm$8g, $\pm$16g)
+    \item 3-axis gyroscope ($\pm$125$^\circ$/s to $\pm$2000$^\circ$/s)
+    \item I$^2$C interface to 32U4
+\end{itemize}
+
+\textbf{Wheel Encoders:} Magnetic encoders on both motors
+\begin{itemize}
+    \item 12 counts per revolution of motor shaft
+    \item 600 counts per revolution of wheel (with 75:1 gearing)
+    \item Quadrature encoding for direction sensing
+\end{itemize}
+
+\subsubsection*{Actuation}
+
+\textbf{Motors:} Two independently controlled DC motors
+\begin{itemize}
+    \item Voltage: 6V nominal (max 6V)
+    \item Speed: $\sim$150 RPM at 6V (no load)
+    \item Torque: $\sim$35 oz-in (0.25 N$\cdot$m) at 6V stall
+    \item PWM control via TB6612FNG driver
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.3\textwidth]{img/..png}
+    \caption{hardware and code architecture}
+    \label{fig:hardware and code architecture}
+\end{figure}
+
+
+\subsection*{Appendix B: Final code} \label{Appendix B}
+
+
+\subsection*{Appendix C: Firmware development} \label{Appendix C}
+
+\subsubsection*{High-Level Controller (Raspberry Pi)}
+\begin{itemize}
+    \item Python 3.9+S
+    \item MPC solver: CasADi
+    \item State estimator: EKF or complementary filter
+\end{itemize}
+\\
+\subsubsection*{Low-Level Controller (ATmega32U4)}
+\begin{itemize}
+    \item Arduino-compatible C/C++
+    \item Motor PWM generation
+    \item Encoder interrupt handling
+    \item IMU data filtering
+\end{itemize}
+
+Assumption: Communication latency between Pi and 32U4 is $<10ms$ for real-time control at 50-100 Hz.
+\\
+\subsubsection*{physical implementation steps}
+Started by testing the polulu board with unit tests through arduino IDE and simple PID code.
+
+Then set up the RPi and communication with the polulu board and sensors (tried I2C then switched to USB communication).
+
+Succesfully read gyro and accelerometer. Encoder still under progress.
+
+
+

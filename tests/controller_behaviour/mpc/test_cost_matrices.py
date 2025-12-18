@@ -32,7 +32,7 @@ def discrete_dynamics(robot_params):
     return discretize_linear_dynamics(
         linearized.state_matrix,
         linearized.control_matrix,
-        sampling_period_s=0.02,
+        sampling_period_s=0.065,
     )
 
 

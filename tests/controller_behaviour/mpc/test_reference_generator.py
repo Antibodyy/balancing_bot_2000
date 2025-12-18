@@ -23,7 +23,7 @@ from mpc.reference_generator import (
 def ref_gen():
     """Create reference generator."""
     return ReferenceGenerator(
-        sampling_period_s=0.02,
+        sampling_period_s=0.065,
         prediction_horizon_steps=20,
     )
 
@@ -33,18 +33,18 @@ class TestReferenceGeneratorCreation:
 
     def test_creation(self, ref_gen):
         """Test basic creation."""
-        assert ref_gen.sampling_period_s == 0.02
+        assert ref_gen.sampling_period_s == 0.065
         assert ref_gen.prediction_horizon_steps == 20
 
     def test_negative_sampling_period_raises(self):
         """Test that negative sampling period raises."""
         with pytest.raises(ValueError):
-            ReferenceGenerator(sampling_period_s=-0.02, prediction_horizon_steps=20)
+            ReferenceGenerator(sampling_period_s=-0.065, prediction_horizon_steps=20)
 
     def test_zero_horizon_raises(self):
         """Test that zero horizon raises."""
         with pytest.raises(ValueError):
-            ReferenceGenerator(sampling_period_s=0.02, prediction_horizon_steps=0)
+            ReferenceGenerator(sampling_period_s=0.065, prediction_horizon_steps=0)
 
 
 class TestBalanceReference:
@@ -62,12 +62,39 @@ class TestBalanceReference:
 
         assert np.allclose(reference, 0)
 
-    def test_via_command(self, ref_gen):
-        """Test generation via ReferenceCommand."""
+    def test_via_command_defaults_to_origin(self, ref_gen):
+        """Test generation via ReferenceCommand with default position."""
         command = ReferenceCommand(mode=ReferenceMode.BALANCE)
-        reference = ref_gen.generate(command)
+        reference = ref_gen.generate(command, np.zeros(STATE_DIMENSION))
 
-        assert np.allclose(reference, 0)
+        assert np.allclose(reference[:, POSITION_INDEX], 0.0)
+        assert np.allclose(reference[:, VELOCITY_INDEX], 0.0)
+
+    def test_balance_latches_current_position(self, ref_gen):
+        """Balance mode should hold the current position when it begins."""
+        balance_command = ReferenceCommand(mode=ReferenceMode.BALANCE)
+        current_state = np.zeros(STATE_DIMENSION)
+        current_state[POSITION_INDEX] = 0.42
+
+        reference = ref_gen.generate(balance_command, current_state)
+
+        assert np.allclose(reference[:, POSITION_INDEX], 0.42)
+        assert np.allclose(reference[:, VELOCITY_INDEX], 0.0)
+
+    def test_balance_hold_persists_until_mode_change(self, ref_gen):
+        """Latched balance position should persist while remaining in balance mode."""
+        balance_command = ReferenceCommand(mode=ReferenceMode.BALANCE)
+        first_state = np.zeros(STATE_DIMENSION)
+        first_state[POSITION_INDEX] = 0.15
+        ref_gen.generate(balance_command, first_state)
+
+        # Simulate estimator drift while still commanding balance.
+        second_state = np.zeros(STATE_DIMENSION)
+        second_state[POSITION_INDEX] = 1.25
+        reference = ref_gen.generate(balance_command, second_state)
+
+        assert np.allclose(reference[:, POSITION_INDEX], 0.15)
+        assert np.allclose(reference[:, VELOCITY_INDEX], 0.0)
 
 
 class TestVelocityReference:
@@ -105,7 +132,7 @@ class TestVelocityReference:
         assert np.all(np.diff(positions) >= 0)
 
         # Final position should match integrated velocity
-        expected_final = velocity * 20 * 0.02
+        expected_final = velocity * 20 * 0.065
         assert np.isclose(positions[-1], expected_final)
 
     def test_pitch_is_zero(self, ref_gen):

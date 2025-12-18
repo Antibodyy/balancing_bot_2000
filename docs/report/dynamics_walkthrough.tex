@@ -1,0 +1,89 @@
+The dynamics for the two wheeled self-balancing robot consist of nonlinear coupled differential equations combining inverted pendulum dynamics for pitch stabilization, differential drive kinematics, and no-slip wheel constraints. A key contribution of our work is the inclusion of slope effects in conjunction with the full drive kinematic model. We retain the nonlinear plant for state estimation and MuJoCo validation, but linear MPC is built on a discrete-time approximation; accordingly, the subsections below connect the continuous derivation to the Jacobian linearization and zero-order-hold discretization steps used by the controller at each 65\,ms update.
+
+\subsection*{State Space Model}
+
+The robot is modeled as a coupled system with state vector $x \in \mathbb{R}^6$ and control input $u \in \mathbb{R}^2$:
+\[
+x = \begin{bmatrix}  x &  \theta & \psi & \dot{x} & \dot{\theta} & \dot{\psi} \end{bmatrix}^T, \quad
+u = \begin{bmatrix} \tau_L & \tau_R \end{bmatrix}^T
+\]
+The state vector holds the following generalized coordinates: x is the linear position along the ground frame [m], $\theta$ is the pitch angle (body tilt) [rad], $\psi$ is the heading angle [rad],  $\dot{x}$ is the linear velocity [m/s], $\dot{\theta}$ is the pitch angular velocity or pitch rate [rad/s], $\dot{\psi}$ is the yaw rate [rad/s]. The control inputs $\tau_L$, $\tau_R$ correspond to the left and right motor torques [Nm], which the robot's motor driver converts to voltage using the following relation: 
+\[
+V = \frac{\tau R}{k_t} + k_e\omega
+\]
+where \(V\) is the applied voltage [V], \(\tau\) is the desired torque [N$\cdot$m], 
+\(R\) is the winding resistance [$\Omega$], \(k_t\) is the torque constant [N$\cdot$m/A], 
+\(k_e\) is the back-EMF constant [V$\cdot$s/rad], and \(\omega\) is the motor angular 
+velocity [rad/s].
+
+\subsection*{Equation of motion}
+
+The dynamic equation is solved in this form:
+\[
+\mathbf{M}(\mathbf{q})\ddot{\mathbf{q}} = \mathbf{F}_u - \mathbf{C}(\mathbf{q}, \dot{\mathbf{q}}) - \mathbf{G}(\mathbf{q})
+\]
+
+\subsubsection*{Mass Matrix \(\mathbf{M}\)}
+\[
+\mathbf{M} = \begin{bmatrix}
+M_{11} & M_{12} & 0 \\
+M_{12} & M_{22} & 0 \\
+0 & 0 & M_{33}
+\end{bmatrix}
+\]
+\begin{align*}
+M_{11} &= m_{\text{eff}} = M_b + 2M_w + \frac{I_{wy}}{R^2} \\
+M_{12} &= M_b L \cos(\theta) \\
+M_{22} &= I_{\text{pitch}} = (M_b + M_w)L^2 + I_{by} \\
+M_{33} &= I_{\text{yaw}} = I_{wz} + I_{bx}\sin^2(\theta) - I_{bz}\cos^2(\theta)
+\end{align*}
+
+In this model, the $I_{\text{yaw}}$ term is significantly complicating the Mass matrix as it is varying with the pitch angle. For our purposes, considering steering (yaw) control is only implemented when the robot is relatively upright ($\theta \approx 0$), we can simplify this term by approximating it with a constant yaw inertia. Additionally, we will neglect the inertia of the wheels due to their negligible mass, relatively small size and proximity to the yaw axis. This gives us the new simplified M33 term:
+\[
+I_{\text{yaw}} &= I_{bz} \quad
+\]
+
+much more suitable for real-time MPC because it provides faster solve times. The physical accuracy that is lost is well worth the computational load that is used.
+\\ \\
+\subsubsection*{Coriolis and Centrifugal Terms \(\mathbf{C}\)}
+\[
+\mathbf{C} = \begin{bmatrix}
+C_1 \\ C_2 \\ C_3
+\end{bmatrix} = \begin{bmatrix}
+-M_b L \dot{\theta}^2 \sin(\theta) \\
+-\frac{1}{2}(I_{bx} - I_{bz})\dot{\psi}^2 \sin(2\theta) \\
+(I_{bx} - I_{bz})\dot{\theta}\dot{\psi}\sin(2\theta)
+\end{bmatrix}
+\]
+Again, a significant simplification can be made to make our model more suitable for real-time MPC. As we won't be making any rapid turns (yaw rate remains small), we can assume planar motion dominates. Neglecting the gyroscopic effects means we can assume the pitch-yaw coupling terms (\(C_2\) and \(C_3\)) are equal to zero.
+\\\\
+\subsubsection*{Gravitational Terms \(\mathbf{G}\)}
+\[
+\mathbf{G} = \begin{bmatrix}
+(M_b + 2M_w)g\sin(\phi) \\
+-M_b g L \sin(\theta + \phi) \\
+0
+\end{bmatrix}
+\]
+\subsubsection*{Generalized Forces \(\mathbf{F}_u\)}
+\begin{align*}
+F_1 &= \frac{1}{R}(\tau_L + \tau_R) \quad \text{(longitudinal force)} \\
+F_2 &= -(\tau_L + \tau_R) \quad \text{(pitch reaction torque)} \\
+F_3 &= \frac{W}{2R}(\tau_R - \tau_L) \quad \text{(yaw torque)}
+\end{align*}
+\subsubsection*{CasADI solves EoM}
+We can restructure the equation of motion to the following form:
+\begin{align*}
+\ddot{\mathbf{q}} = \mathbf{M}^{-1}(\mathbf{F}_u - \mathbf{C} - \mathbf{G})
+\end{align*}
+which can be put in CasADI symbolic computation to construct the dynamics function for our controller.
+
+\subsection*{Equilibrium on varying slopes}
+
+Equilibrium on slope with zero velocity
+\begin{align*}
+\mathbf{q}_{\text{eq}} &= [0, -\phi, 0, 0, 0, 0]^T \\
+\boldsymbol{\tau}_{\text{eq}} &= [0, 0]^T
+\end{align*}
+
+The equilibrium pitch \(\theta_{\text{eq}} = -\phi\) compensates for ground slope to achieve static balance.

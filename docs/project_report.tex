@@ -1,0 +1,118 @@
+% !TeX encoding = UTF-8
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%2345678901234567890123456789012345678901234567890123456789012345678901234567890
+%        1         2         3         4         5         6         7         8
+
+\documentclass[article, 10pt, conference]{ieeeconf}      % Use this line for a4
+                                                          % paper
+
+\IEEEoverridecommandlockouts                              % This command is only
+                                                          % needed if you want to
+                                                          % use the \thanks command
+\overrideIEEEmargins
+% See the \addtolength command later in the file to balance the column lengths
+% on the last page of the document
+
+% The following packages can be found on http:\\www.ctan.org
+\usepackage{graphicx} % for pdf, bitmapped graphics files
+%\usepackage{epsfig} % for postscript (.ps, .eps) graphics files
+%\usepackage{mathptmx} % assumes new font selection scheme installed
+%\usepackage{times} % assumes new font selection scheme installed
+\usepackage{amsmath} % assumes amsmath package installed
+\usepackage{amssymb}  % assumes amsmath package installed
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{img/}} % possible ot add more folders:
+%\graphicspath{{subdir1/}{subdir2/}{subdir3/}...{subdirn/}}
+% or complete path (when figures are not in a subfolder of the main file)
+%\graphicspath{{D:/LATEX/BEP/figures/}}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{threeparttable}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{soul}
+\usepackage{titlesec}
+\usepackage{eso-pic}
+\usepackage{comment}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries}
+  {\thesection}{1em}{}
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}
+  {\thesubsection}{1em}{}
+
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries}
+  {\thesubsubsection}{1em}{
+
+\title{\Large \bf Designing a Model Predictive torque controller for a two wheeled balancing robot}
+\author{Authors: Aryan Kulkarni, Diego Vangeneugden, Michael Rubin, Shanthanu Saravanan}
+\date{ME C231A: Advanced Experiential Control 1 \\\\ UC Berkeley  \\\\ Fall 2025}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+\AddToShipoutPictureBG{%
+    \AtPageUpperLeft{%
+        \hspace{1cm}% Adjust horizontal position
+        \vspace{-1cm}% Adjust vertical position
+        \includegraphics[width=2cm]{img/logo.png}% Replace with your logo file and desired width
+    }%
+}
+
+
+% The three lines below print the title and page numbers, so please don't edit them
+\maketitle
+\thispagestyle{plain}
+\pagestyle{plain}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\noindent \begin{abstract}
+\input{report/Abstract}
+\end{abstract}
+\section{Introduction}
+\input{report/introduction}
+\section{Dynamics}
+\input{report/dynamics_walkthrough}
+\section{Model Predictive Control}
+\input{report/MPC_walkthrough}
+\section{MPC Design Parameters}
+\input{report/Optimizing_MPC}
+\section{Comparing MPC and LQR}
+\input{report/LQR_walkthrough}
+\section{Conclusion}
+\input{report/Conclusion}
+\section{Discussion}
+\input{report/discussion}
+
+\newpage
+\section*{Acknowledgements}
+\input{report/Acknowledgements}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+% The two lines below print the bibliography of your paper. The entries are taken from the 'paper.bib'-file, from which only the entries xx that have a '\cite{xx}'-reference inside the paper will be printed.
+\newpage
+\bibliographystyle{ieeetran}
+\section*{Statement of work}
+All authors contributed equally to the work required all along this project. The authors are listed alphabetically.
+
+
+\bibliography{report/references}
+\newpage
+\onecolumn
+\section{Appendix}
+\input{report/Appendix}
+\end{document}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

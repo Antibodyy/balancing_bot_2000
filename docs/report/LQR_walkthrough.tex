@@ -1,0 +1,57 @@
+To elaborate our understanding of this control system, an LQR controller was also designed. Its performance was compared to the MPC controller under the same test conditions.
+
+\subsection*{LQR controller design}
+Continuous-time LQR around equilibrium:
+\begin{align*}
+\mathbf{A} &= \left.\frac{\partial \dot{\mathbf{x}}}{\partial \mathbf{x}}\right|_{\mathbf{x}_{\text{eq}}, \mathbf{u}_{\text{eq}}} \\
+\mathbf{B} &= \left.\frac{\partial \dot{\mathbf{x}}}{\partial \mathbf{u}}\right|_{\mathbf{x}_{\text{eq}}, \mathbf{u}_{\text{eq}}}
+\end{align*}
+
+Continuous algebraic Riccati equation (CARE) solved:
+\[
+\mathbf{A}^T\mathbf{P} + \mathbf{P}\mathbf{A} - \mathbf{P}\mathbf{B}\mathbf{R}^{-1}\mathbf{B}^T\mathbf{P} + \mathbf{Q} = 0
+\]
+
+Gain: \(\mathbf{K} = \mathbf{R}^{-1}\mathbf{B}^T\mathbf{P}\)
+
+Control law: \(\mathbf{u} = -\mathbf{K}(\mathbf{x} - \mathbf{x}_{\text{eq}})\)
+
+Weight matrices:
+\begin{align*}
+\mathbf{Q} &= \text{diag}(500.0, 1.0, 1.0, 0.1, 10.0, 0.1) \\
+\mathbf{R} &= 0.1 \cdot \mathbf{I}_2
+\end{align*}
+\hl{check that this Q corresponds to our earlier definition of the state vector} 
+
+The high weight on the pitch angle (\(Q_{11} = 500\)) is to prioritize balance as the main generalized coordinate. Which reinforces the validity of our simplified dynamics.
+
+\subsection*{in-place balancing comparison}
+
+\subsection*{driving and stopping comparison}
+\subsection*{trajectory following comparison}
+\subsection*{should we add slope comparison?}
+
+\subsection*{Comparison with MPC}
+To contextualize the linear MPC design choices, we evaluated both controllers on identical MuJoCo scenarios using the infrastructure from \texttt{tests/controller\_behaviour/mpc/test\_mpc\_vs\_lqr.py}. Figure~\ref{fig:mpc-vs-lqr-timeseries} shows representative traces for the flat-ground composite maneuver (balance, accelerate to $0.5$~m/s, brake to $-0.3$~m/s, regain balance). The LQR controller reacts quickly but saturates the wheel torques during large disturbances, whereas MPC respects the $\pm 0.25$~Nm limits and maintains smaller pitch excursions. Figure~\ref{fig:mpc-vs-lqr-metrics} summarizes pitch/velocity RMS error, torque saturation, and solve-time statistics; LQR has lower computational cost but pays for it with larger steady-state error and frequent saturation events.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{img/mpc_vs_lqr_timeseries.png}
+    \caption{MPC vs. LQR time-series on flat ground: pitch error, velocity tracking, torque usage, and solve times (65\,ms budget shown in red).}
+    \label{fig:mpc-vs-lqr-timeseries}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.9\linewidth]{img/mpc_vs_lqr_metrics.png}
+    \caption{Aggregate metrics for the same scenario. MPC exhibits lower pitch/velocity RMS error and respects torque limits at the cost of solving a QP each step.}
+    \label{fig:mpc-vs-lqr-metrics}
+\end{figure}
+
+Across the broader set of slopes ($0^\circ$, $5^\circ$, $10^\circ$) we observed similar trends:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{In-place balance:} LQR recovers rapidly from small perturbations because it applies high gains without solving an optimization problem, but once torques approach their physical limits the unconstrained law commands infeasible actions. MPC keeps the predicted trajectory within pitch and torque bounds, avoiding the railing impacts observed with LQR at $\theta > 20^\circ$.
+    \item \textbf{Drive-stop maneuver:} The LQR gains tuned around the upright equilibrium struggle with the large acceleration/deceleration required to stop from $0.5$~m/s; overshoot in $\theta$ leads to wheel slip and oscillatory settling. MPC anticipates the stopping constraint through its finite horizon, halving the peak pitch rate and eliminating steady-state error.
+    \item \textbf{Circular tracking:} Both controllers suffer from the modeling mismatch highlighted in Section~\ref{sec:discussion}; yaw errors stem from missing cross-coupling terms rather than the choice of control law. Nevertheless, MPC provides a convenient place to inject future capture-point or momentum-based constraints that would enforce tighter yaw bounds, whereas LQR would require a wholesale gain redesign.
+\end{itemize}
+Overall, LQR provides a lightweight baseline and is useful for intuition building, but the constrained MPC formulation is essential whenever torque limits, pitch bounds, or task-level constraints must be enforced explicitly.

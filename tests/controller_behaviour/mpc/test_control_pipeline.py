@@ -111,13 +111,13 @@ class TestControlLoopTimer:
 
     def test_creation(self):
         """Test basic creation."""
-        timer = ControlLoopTimer(deadline_s=0.02)
-        assert timer.deadline_s == 0.02
+        timer = ControlLoopTimer(deadline_s=0.065)
+        assert timer.deadline_s == 0.065
         assert timer.deadline_violations == 0
 
     def test_iteration_timing(self):
         """Test iteration timing tracking."""
-        timer = ControlLoopTimer(deadline_s=0.02)
+        timer = ControlLoopTimer(deadline_s=0.065)
 
         timer.start_iteration()
         timer.mark_estimation_complete()
@@ -274,7 +274,7 @@ class TestBalanceController:
             angular_velocity_radps=np.array([0.0, 0.0, 0.0]),
             encoder_left_rad=0.1,
             encoder_right_rad=0.1,
-            timestamp_s=0.02,
+            timestamp_s=0.065,
         )
         command = ReferenceCommand(mode=ReferenceMode.BALANCE)
         controller.step(sensor_data, command)
@@ -304,7 +304,7 @@ class TestBalanceController:
             angular_velocity_radps=np.array([0.0, 0.0, 0.0]),
             encoder_left_rad=1.0,  # 1 radian of wheel rotation
             encoder_right_rad=1.0,
-            timestamp_s=0.02,
+            timestamp_s=0.065,
         )
         output = controller.step(sensor_data2, command)
 

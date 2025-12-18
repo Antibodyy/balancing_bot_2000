@@ -98,6 +98,9 @@ class ReferenceGenerator:
 
         self._sampling_period_s = sampling_period_s
         self._prediction_horizon_steps = prediction_horizon_steps
+        self._previous_mode: Optional[ReferenceMode] = None
+        self._balance_position_hold_m: float = 0.0
+        self._balance_hold_valid: bool = False
 
     def generate(
         self,
@@ -114,9 +117,14 @@ class ReferenceGenerator:
             Reference trajectory array (N+1, STATE_DIMENSION)
         """
         if command.mode == ReferenceMode.BALANCE:
-            return self.generate_balance_reference(command.desired_pitch_rad)
+            self._update_balance_hold(current_state)
+            reference = self.generate_balance_reference(
+                desired_pitch_rad=command.desired_pitch_rad,
+                position_hold_m=self._balance_position_hold_m,
+            )
         elif command.mode == ReferenceMode.VELOCITY:
-            return self.generate_velocity_reference(
+            self._balance_hold_valid = False
+            reference = self.generate_velocity_reference(
                 command.velocity_mps,
                 command.yaw_rate_radps,
                 current_state,
@@ -126,13 +134,15 @@ class ReferenceGenerator:
                 raise ValueError(
                     "current_state is required for POSITION mode"
                 )
-            return self.generate_position_reference(
+            self._balance_hold_valid = False
+            reference = self.generate_position_reference(
                 current_state,
                 command.target_position_m,
                 command.target_heading_rad,
             )
         elif command.mode == ReferenceMode.CIRCULAR:
-            return self.generate_circular_reference(
+            self._balance_hold_valid = False
+            reference = self.generate_circular_reference(
                 radius_m=command.radius_m,
                 target_velocity_mps=command.target_velocity_mps,
                 center_x_m=command.center_x_m,
@@ -143,11 +153,19 @@ class ReferenceGenerator:
         else:
             raise ValueError(f"Unknown reference mode: {command.mode}")
 
-    def generate_balance_reference(self, desired_pitch_rad: float = 0.0) -> np.ndarray:
+        self._previous_mode = command.mode
+        return reference
+
+    def generate_balance_reference(
+        self,
+        desired_pitch_rad: float = 0.0,
+        position_hold_m: float = 0.0,
+    ) -> np.ndarray:
         """Generate constant zero reference for balance mode.
 
         The robot should maintain upright posture at rest.
-        All states are zero: position=0, pitch=0, yaw=0, velocity=0, pitch_rate=0, yaw_rate=0
+        States track the latched pose when balance began:
+        position is held constant, velocity is zero.
 
         Returns:
             Reference trajectory (N+1, STATE_DIMENSION) of zeros
@@ -155,6 +173,8 @@ class ReferenceGenerator:
         horizon = self._prediction_horizon_steps
         reference = np.zeros((horizon + 1, STATE_DIMENSION))
         reference[:, PITCH_INDEX] = desired_pitch_rad
+        reference[:, POSITION_INDEX] = position_hold_m
+        reference[:, VELOCITY_INDEX] = 0.0
         return reference
 
     def generate_velocity_reference(
@@ -387,3 +407,14 @@ class ReferenceGenerator:
     def prediction_horizon_steps(self) -> int:
         """Number of prediction steps."""
         return self._prediction_horizon_steps
+
+    def _update_balance_hold(self, current_state: Optional[np.ndarray]) -> None:
+        """Latch the position to maintain during balance mode."""
+        entering_balance = self._previous_mode != ReferenceMode.BALANCE
+        if (not self._balance_hold_valid) or entering_balance:
+            if current_state is not None:
+                self._balance_position_hold_m = float(current_state[POSITION_INDEX])
+            else:
+                # Fall back to zero if no state provided.
+                self._balance_position_hold_m = 0.0
+            self._balance_hold_valid = True

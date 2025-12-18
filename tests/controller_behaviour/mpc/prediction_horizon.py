@@ -1,7 +1,7 @@
 """
 Sweep MPC prediction horizon to balance performance vs real-time cost.
 
-For N in [10, 15, 20, 25, 30, 35, 40] with Ts=0.02 s, simulate a closed-loop
+For N in [10, 15, 20, 25, 30, 35, 40] with Ts=0.065 s, simulate a closed-loop
 recovery from a 0.1 rad pitch perturbation and collect:
  - Settling time (|pitch| < tol for 0.5 s window)
  - Overshoot (max |pitch| excursion)
@@ -73,7 +73,7 @@ def write_temp_mpc_config(base_config: MPCConfig, horizon: int) -> str:
 
 def main() -> None:
     horizons = [10, 15, 20, 25, 30, 35, 40]
-    Ts = 0.02
+    Ts = 0.065
     duration_s = 5.0
     init_pitch = 0.1
     output_dir = Path("test_and_debug_output/horizon_sweep")
@@ -147,7 +147,7 @@ def main() -> None:
             recommendation = N
             break
 
-    print("\nHorizon sweep results (Ts = 0.02 s):")
+    print("\nHorizon sweep results (Ts = 0.065 s):")
     for N, m in zip(horizons, metrics):
         print(
             f"N={N:2d} | settle={m['settling_time_s']:.3f}s | overshoot={m['overshoot_rad']:.3f}rad | "

@@ -7,16 +7,24 @@ This module provides the top-level controller that coordinates:
 4. Control output generation
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 
-from robot_dynamics.parameters import STATE_DIMENSION, CONTROL_DIMENSION, RobotParameters
+from robot_dynamics.parameters import (
+    STATE_DIMENSION,
+    CONTROL_DIMENSION,
+    RobotParameters,
+    VELOCITY_INDEX,
+    PITCH_INDEX,
+    PITCH_RATE_INDEX,
+)
 from robot_dynamics.linearization import linearize_at_state, build_jacobian_functions
 from robot_dynamics.discretization import discretize_linear_dynamics
 from mpc.linear_mpc_solver import LinearMPCSolver, MPCSolution
-from mpc.reference_generator import ReferenceGenerator, ReferenceCommand
+from mpc.reference_generator import ReferenceGenerator, ReferenceCommand, ReferenceMode
 from state_estimation.complementary_filter import ComplementaryFilter, IMUReading
 from control_pipeline.timing import ControlLoopTimer, IterationTiming
 
@@ -56,6 +64,7 @@ class ControlOutput:
     torque_left_nm: float
     torque_right_nm: float
     state_estimate: np.ndarray
+    state_deviation: np.ndarray
     predicted_trajectory: np.ndarray
     timing: IterationTiming
     mpc_solution: MPCSolution
@@ -79,6 +88,8 @@ class BalanceController:
         timer: Control loop timer for performance monitoring
     """
 
+    BALANCE_R_SCALE: float = 0.01
+
     def __init__(
         self,
         mpc_solver: LinearMPCSolver,
@@ -93,6 +104,7 @@ class BalanceController:
         online_linearization_enabled: bool = False,
         use_simulation_velocity: bool = False,
         use_simulation_heading: bool = False,
+        use_simulation_state_estimate: bool = False,
     ) -> None:
         """Initialize balance controller.
 
@@ -116,8 +128,18 @@ class BalanceController:
         self._track_width_m = track_width_m
         self._use_simulation_velocity = use_simulation_velocity
         self._use_simulation_heading = use_simulation_heading
+        self._use_simulation_state_estimate = use_simulation_state_estimate
         self._true_heading = 0.0
         self._true_yaw_rate = 0.0
+        self._control_limit_nm = (
+            mpc_solver.control_limit_nm if hasattr(mpc_solver, "control_limit_nm") else None
+        )
+        self._debug_q_printed = False
+        self._debug_torque_sum = 0.0
+        self._debug_torque_samples = 0
+        self._debug_torque_reported = False
+        self._debug_torque_saturation = False
+        self._latest_sim_state: Optional[np.ndarray] = None
 
         # Store equilibrium operating point (x_eq, u_eq) so MPC works in delta coordinates.
         if equilibrium_state is None:
@@ -126,6 +148,7 @@ class BalanceController:
             equilibrium_control = np.zeros(CONTROL_DIMENSION)
         self._equilibrium_state = np.asarray(equilibrium_state, dtype=float).reshape(STATE_DIMENSION)
         self._equilibrium_control = np.asarray(equilibrium_control, dtype=float).reshape(CONTROL_DIMENSION)
+        self._last_control = self._equilibrium_control.copy()
 
         # Online linearization
         self._robot_params = robot_params
@@ -169,7 +192,10 @@ class BalanceController:
         self._timer.start_iteration()
 
         # 1. Update state estimate (absolute coordinates)
-        state_estimate = self._estimate_state(sensor_data)
+        if self._use_simulation_state_estimate and self._latest_sim_state is not None:
+            state_estimate = self._latest_sim_state.copy()
+        else:
+            state_estimate = self._estimate_state(sensor_data)
         # Express deviation from equilibrium for linear MPC
         state_deviation = state_estimate - self._equilibrium_state
         self._timer.mark_estimation_complete()
@@ -188,19 +214,94 @@ class BalanceController:
         # so the returned values are already deviations in MPC coordinates.
         self._timer.mark_reference_complete()
 
-        # 4. Solve MPC
-        mpc_solution = self._mpc_solver.solve(state_deviation, reference_deviation)
+        # 4. Solve MPC (optionally override cost for balance mode)
+        debug_q = os.getenv("MPC_DEBUG_Q")
+        if debug_q and not self._debug_q_printed:
+            q_diag = np.diag(self._mpc_solver.state_cost)
+            r_diag = np.diag(self._mpc_solver.control_cost)
+            print(
+                "[DEBUG] MPC state indices: [x=0, theta=1, psi=2, dx=3, dtheta=4, dpsi=5], "
+                f"Q diagonal: {q_diag}, R diagonal: {r_diag}"
+            )
+            self._debug_q_printed = True
+        if (
+            reference_command.mode == ReferenceMode.BALANCE
+            and self._mpc_solver is not None
+        ):
+            q_override = self._mpc_solver.base_state_cost.copy()
+            q_override[0, 0] = 40.0
+            q_override[1, 1] = 40.0
+            q_override[3, 3] = 400.0
+            r_override = self._mpc_solver.base_control_cost.copy()
+            r_override *= self.BALANCE_R_SCALE
+            terminal_cost_override = self._mpc_solver.base_terminal_cost.copy()
+            terminal_cost_override[VELOCITY_INDEX, VELOCITY_INDEX] *= 150.0
+            terminal_cost_override[PITCH_INDEX, PITCH_INDEX] *= 20.0
+            mpc_solution = self._mpc_solver.solve(
+                state_deviation,
+                reference_deviation,
+                state_cost_override=q_override,
+                control_cost_override=r_override,
+                terminal_cost_override=terminal_cost_override,
+                terminal_velocity_limit_override=0.05,
+                terminal_pitch_limit_override=0.10,
+                terminal_pitch_rate_limit_override=0.5,
+            )
+            if debug_q == "2":
+                q_diag = np.diag(self._mpc_solver.state_cost)
+                r_diag = np.diag(self._mpc_solver.control_cost)
+                print(f"[DEBUG] Balance override Q diag: {q_diag}, R diag: {r_diag}")
+        else:
+            mpc_solution = self._mpc_solver.solve(state_deviation, reference_deviation)
         self._timer.mark_solve_complete()
+
+        solver_status = (mpc_solution.solver_status or "").lower()
 
         # 4. Extract control
         optimal_control_delta = mpc_solution.optimal_control
-        # Add equilibrium feed-forward torque so hardware applies u = u_eq + Δu
-        optimal_control = optimal_control_delta + self._equilibrium_control
+        if solver_status != "optimal":
+            optimal_control = self._last_control.copy()
+        else:
+            optimal_control = optimal_control_delta + self._equilibrium_control
+            self._last_control = optimal_control.copy()
 
-        # Convert predicted trajectory back to absolute coordinates for logging/plotting
-        predicted_trajectory = (
-            mpc_solution.predicted_trajectory + self._equilibrium_state
-        )
+        if debug_q and not self._debug_torque_reported:
+            self._debug_torque_sum += float(np.mean(np.abs(optimal_control)))
+            self._debug_torque_samples += 1
+            if (
+                self._control_limit_nm is not None
+                and np.any(np.abs(optimal_control) >= 0.98 * self._control_limit_nm)
+            ):
+                self._debug_torque_saturation = True
+            elapsed = self._debug_torque_samples * self._sampling_period_s
+            if elapsed >= 1.0:
+                mean_torque = self._debug_torque_sum / self._debug_torque_samples
+                print(
+                    "[DEBUG] Balance torque mean(|u|) over "
+                    f"{elapsed:.3f}s = {mean_torque:.5f} Nm, "
+                    f"saturation={self._debug_torque_saturation}"
+                )
+                self._debug_torque_reported = True
+
+        predicted_trajectory = mpc_solution.predicted_trajectory
+        if predicted_trajectory.ndim == 1:
+            predicted_trajectory = predicted_trajectory.reshape(1, -1)
+
+        if solver_status != "optimal" or predicted_trajectory.size == 0:
+            horizon_plus_one = predicted_trajectory.shape[0] or (
+                self._mpc_solver.prediction_horizon_steps + 1
+            )
+            fallback = np.full((horizon_plus_one, STATE_DIMENSION), np.nan)
+            fallback[0, :] = state_estimate
+            predicted_trajectory = fallback
+            print(
+                f"[WARN] MPC solver returned status '{mpc_solution.solver_status}'. "
+                f"Using state estimate to seed predicted trajectory."
+            )
+        else:
+            predicted_trajectory = (
+                predicted_trajectory + self._equilibrium_state
+            )
 
         # End timing
         timing = self._timer.end_iteration()
@@ -209,6 +310,7 @@ class BalanceController:
             torque_left_nm=optimal_control[0],
             torque_right_nm=optimal_control[1],
             state_estimate=state_estimate,
+            state_deviation=state_deviation,
             predicted_trajectory=predicted_trajectory,
             timing=timing,
             mpc_solution=mpc_solution,
@@ -223,9 +325,8 @@ class BalanceController:
         Args:
             state_estimate: Current state estimate [x, theta, psi, dx, dtheta, dpsi]
         """
-        # Linearize at current state (using full current state)
-        # Control is assumed zero at linearization point
-        control_linearization_point = np.zeros(2)
+        # Linearize at current state using current equilibrium control
+        control_linearization_point = self._equilibrium_control.copy()
 
         linearized = linearize_at_state(
             self._robot_params,
@@ -342,6 +443,8 @@ class BalanceController:
         self._previous_timestamp_s = None
         self._position_m = 0.0
         self._heading_rad = 0.0
+        self._last_control = self._equilibrium_control.copy()
+        self._latest_sim_state = None
 
     @property
     def timer(self) -> ControlLoopTimer:
@@ -357,3 +460,9 @@ class BalanceController:
     def heading_rad(self) -> float:
         """Current integrated heading estimate."""
         return self._heading_rad
+
+    def update_simulation_state(self, state: np.ndarray) -> None:
+        """Provide ground-truth state from simulation for estimator bypass."""
+        if not self._use_simulation_state_estimate:
+            return
+        self._latest_sim_state = np.asarray(state, dtype=float).copy()

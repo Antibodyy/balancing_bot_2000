@@ -8,6 +8,7 @@ from robot_dynamics.parameters import (
     CONTROL_DIMENSION,
     PITCH_INDEX,
     PITCH_RATE_INDEX,
+    VELOCITY_INDEX,
 )
 from mpc.constraints import (
     StateConstraints,
@@ -62,6 +63,18 @@ class TestStateConstraints:
 
         assert lower[PITCH_RATE_INDEX] == -pitch_rate_limit
         assert upper[PITCH_RATE_INDEX] == pitch_rate_limit
+
+    def test_velocity_bounds_optional(self):
+        """Velocity bounds are applied when velocity_limit is provided."""
+        constraints = StateConstraints(
+            pitch_limit_rad=0.524,
+            pitch_rate_limit_radps=5.0,
+            velocity_limit_mps=0.3,
+        )
+        lower, upper = constraints.get_bounds()
+
+        assert lower[VELOCITY_INDEX] == -0.3
+        assert upper[VELOCITY_INDEX] == 0.3
 
     def test_unconstrained_states_infinite(self):
         """Test that unconstrained states have infinite bounds."""
@@ -139,8 +152,10 @@ class TestCreateConstraintsFromConfig:
             pitch_limit_rad=0.524,
             pitch_rate_limit_radps=5.0,
             control_limit_nm=0.25,
+            velocity_limit_mps=0.3,
         )
 
         assert state_constraints.pitch_limit_rad == 0.524
         assert state_constraints.pitch_rate_limit_radps == 5.0
         assert input_constraints.control_limit_nm == 0.25
+        assert state_constraints.velocity_limit_mps == 0.3

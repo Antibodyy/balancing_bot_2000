@@ -96,11 +96,11 @@ def compute_rise_time(
 
 def propose_sampling_periods(
     rise_time_s: float,
-    min_freq_hz: float = 50.0,
+    min_freq_hz: float = 16.0,
 ) -> List[float]:
     """Return sampling periods that give 10–20 samples across rise time.
 
-    Enforces a hard minimum control frequency (default 50 Hz ⇒ Ts ≤ 20 ms).
+    Enforces a hard minimum control frequency (default 16 Hz ⇒ Ts ≤ 65 ms).
     """
     max_period_s = 1.0 / min_freq_hz
     periods = [rise_time_s / n for n in range(10, 21)]
@@ -131,7 +131,7 @@ def make_plots(result: RiseTimeResult, out_dir: Path) -> None:
         plt.figure(figsize=(8, 4))
         plt.plot(samples, periods_ms, marker="o")
         plt.title("Sampling periods for 10–20 samples over rise time")
-        plt.xlabel("Samples across rise time (filtered by 50 Hz min)")
+        plt.xlabel("Samples across rise time (filtered by 16 Hz min)")
         plt.ylabel("Sampling period (ms)")
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -142,7 +142,7 @@ def main() -> None:
     params = RobotParameters.from_yaml("config/simulation/robot_params.yaml")
     time_s, pitch_rad = simulate_open_loop(params)
     t10, t90, rise = compute_rise_time(time_s, pitch_rad)
-    sampling_periods = propose_sampling_periods(rise, min_freq_hz=50.0)
+    sampling_periods = propose_sampling_periods(rise, min_freq_hz=16.0)
 
     result = RiseTimeResult(
         time_s=time_s,
@@ -159,12 +159,12 @@ def main() -> None:
     print(f"Final pitch (deg): {np.rad2deg(pitch_rad[-1]):.4f}")
     print(f"t10 = {t10:.4f}s, t90 = {t90:.4f}s, rise = {rise:.4f}s")
     if sampling_periods:
-        print("Sampling periods (ms) for 10–20 samples across rise (>=50 Hz):")
+        print("Sampling periods (ms) for 10–20 samples across rise (>=16 Hz):")
         start_n = 10
         for idx, Ts in enumerate(sampling_periods):
             print(f"  {start_n + idx:2d} samples -> {Ts*1e3:.3f} ms")
     else:
-        print("No sampling periods satisfy both 10–20 samples across rise and >=50 Hz.")
+        print("No sampling periods satisfy both 10–20 samples across rise and >=16 Hz.")
     print(f"Plots saved to: {out_dir}")
 
 

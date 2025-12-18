@@ -1,0 +1,13 @@
+\begin{table}[H]
+    \centering
+    \caption{Control loop timing summary (see docs/mpc\_implementation.md).}
+    \begin{tabular}{lcc}
+        \hline
+        Scenario & Mean solve time [ms] & Notes \\
+        \hline
+        Warm-started MPC & 8--12 & CasADi Opti solver, $N=20$ steps \\
+        Cold-start MPC & $\sim$200 & First iteration only, subsequent warm starts recover \\
+        Control loop budget & 65 & 16~Hz loop period from $T_s = 0.065$~s \\
+        \hline
+    \end{tabular}
+\end{table}

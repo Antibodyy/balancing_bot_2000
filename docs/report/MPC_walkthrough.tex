@@ -1,0 +1,74 @@
+\subsection*{Cost Function}
+The MPC uses a quadratic cost function with separate state and control penalties:
+
+\subsubsection*{Stage Cost}
+\[
+J = \sum_{k=0}^{N-1} \left[ (x_k - x_{ref,k})^T Q (x_k - x_{ref,k}) + u_k^T R u_k \right]
+\]
+
+\subsubsection*{Terminal Cost}
+\[
+J_N = (x_N - x_{ref,N})^T P (x_N - x_{ref,N})
+\]
+
+\subsubsection*{Cost Matrices}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{$Q$ (State Cost Matrix)}: $6 \times 6$ diagonal matrix
+    \begin{itemize}
+        \item Penalizes deviations in the state vector
+    \end{itemize}
+
+    \item \textbf{$R$ (Control Cost Matrix)}: $2 \times 2$ diagonal matrix
+    \begin{itemize}
+        \item Penalizes control effort for the input
+    \end{itemize}
+
+    \item \textbf{$P$ (Terminal Cost)}: Computed via Discrete Algebraic Riccati Equation (DARE)
+\end{itemize}
+
+The cost function prioritizes balance stabilization (pitch angle), smooth control inputs, and trajectory tracking for position and heading.
+\vspace{0.5\baselineskip}
+\subsubsection*{Initial State}
+
+The initial state $x_0 \in \mathbb{R}^6$ is provided at runtime from sensor measurements and fed back into the MPC model.
+
+\subsection*{Constraints}
+There is a state constraint on the pitch of \hl{measure}, measured to ensure the robot will at no point lean on the safety rails. The pitch rate constraint \hl{from code} is added to ensure feasibility with any terminal constraint. A safety constraint is also put in place: when pitch reaches 90 or above, meaning the robot has definitely fallen over beyond recovery, all control actions are stopped.
+
+Furthermore there is symmetric torque limits for both motors:
+\begin{align*}
+|\tau_i| &\leq \tau_{\max} \quad \text{for } i \in \{1,2\}
+\end{align*}
+
+This ensures actuator saturation is respected and the hardware limitations are respected (motors stall torque $\approx 0.25$ [Nm]).
+
+\subsection*{Horizon Length}
+
+The prediction horizon N must be long enough to capture pitch stabilization dynamics while keeping computational cost achievable by using a realistic sampling period $T_s$. The total horizon duration is defined as $N \times T_s$ seconds.
+
+\subsection*{Complete Receding Horizon Problem}
+
+The MPC solves the following optimization problem at each time step:
+
+{\small
+\begin{subequations}
+\begin{align}
+\min_{u_0, \ldots, u_{N-1}} \quad & \sum_{k=0}^{N-1} \big[ (x_k - x_{ref,k})^T Q (x_k - x_{ref,k}) \notag \\
+& \quad + u_k^T R u_k \big] + (x_N - x_{ref,N})^T P (x_N - x_{ref,N}) \label{eq:cost} \\
+\text{s.t.} \quad & x_{k+1} = A x_k + B u_k, \quad k = 0, \ldots, N-1 \label{eq:dynamics} \\
+& x_0 = x(t) \label{eq:initial} \\
+& |\theta_k| \leq \theta_{\max}, \quad k = 1, \ldots, N \label{eq:angle_const} \\
+& |\dot{\theta}_k| \leq \dot{\theta}_{\max}, \quad k = 1, \ldots, N \label{eq:rate_const} \\
+& |u_{k,i}| \leq \tau_{\max}, \quad k = 0, \ldots, N-1, \; i \in \{1,2\} \label{eq:input_const}
+\end{align}
+\end{subequations}
+
+
+where $A \in \mathbb{R}^{6 \times 6}$ and $B \in \mathbb{R}^{6 \times 2}$ are the discrete-time linearized system matrices.
+\\ \\
+This MPC formulation balances the competing objectives of maintaining vertical balance (pitch regulation), tracking desired trajectories ($x, y$ position), and controlling heading (yaw) while respecting physical actuator and geometrical limits. Results were simulated in Mujoco as well as tested on the physical robot.
+
+\subsection*{Validation Data}
+\input{report/results/circular_motion_tables}
+\input{report/results/timing_metrics}

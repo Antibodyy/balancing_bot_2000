@@ -104,6 +104,7 @@ See [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for comprehensive testing doc
 
 ## Documentation
 
+- [Project Report](docs/project_report.tex) - Findings summary and open items
 - [TESTING_GUIDE.md](docs/TESTING_GUIDE.md) - Testing and debugging guide
 - [dynamics.md](docs/dynamics.md) - Mathematical model documentation
 - [style_guide.md](docs/style_guide.md) - Code style conventions
