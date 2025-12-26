@@ -6,7 +6,7 @@ import mujoco.viewer
 import scipy.linalg
 import matplotlib.pyplot as plt
 
-phi = np.deg2rad(15.0) 
+phi = np.deg2rad(0) 
 data_log = {
     'time': [],
     'theta': [],
@@ -115,11 +115,11 @@ def controller_callback(model, data):
     data_log['theta_target'].append(theta_eq)
 
 def main():
-    model = mujoco.MjModel.from_xml_path('MEC231A/Final_project/balancing_bot_2000/robot_model.xml')
+    model = mujoco.MjModel.from_xml_path('/Users/aryankulkarni/Documents/UC Berkeley Coursework/MEC231A/Final_project/stable-mpc-diego/robot_model.xml')
     data = mujoco.MjData(model)
     data.qpos[1] = theta_eq
     mujoco.set_mjcb_control(controller_callback)
-    mujoco.viewer.launch_passive(model, data)
+    mujoco.viewer.launch(model, data)
     time_arr = np.array(data_log['time'])
     theta_arr = np.array(data_log['theta'])
     torque_arr = np.array(data_log['torque'])

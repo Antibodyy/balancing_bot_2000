@@ -648,8 +648,23 @@ class MPCSimulation:
         import mujoco.viewer as mj_viewer
 
         last_mpc_time = 0.0
+        viewer = mj_viewer.launch(self._model, self._data)
 
-        with mj_viewer.launch_passive(self._model, self._data) as viewer:
+        if viewer is None:
+            # The viewer failed to initialize (even if a window briefly flashed).
+            # We must raise an error here because the loop relies on the viewer object.
+            print("\n!!! ERROR: mujoco.viewer.launch returned None. !!!")
+            print("The viewer window could not be fully initialized or crashed immediately.")
+            print("Please check graphics drivers or run in a virtual display environment (Xvfb).")
+            # Return an empty result since the simulation couldn't run.
+            return SimulationResult(
+                time_s=np.array([]),
+                state_history=np.array([]),
+                control_history=np.array([]),
+                state_estimate_history=np.array([]),
+                solve_time_history=np.array([]),
+            )
+        with viewer:
             while viewer.is_running():
                 current_sim_time = self._data.time
 

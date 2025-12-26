@@ -38,9 +38,9 @@ def simulation():
     """Create simulation with default config."""
     config = SimulationConfig(
         model_path='robot_model.xml',
-        robot_params_path='config/robot_params.yaml',
-        mpc_params_path='config/mpc_params.yaml',
-        estimator_params_path='config/estimator_params.yaml',
+        robot_params_path='config/simulation/robot_params.yaml',
+        mpc_params_path='config/simulation/mpc_params.yaml',
+        estimator_params_path='config/simulation/estimator_params.yaml',
         duration_s=5.0,  # Default 5 seconds for tests
     )
     return MPCSimulation(config)
